@@ -42,15 +42,38 @@ function scopeToDir(meta) {
 export function writeExperience(meta, content) {
     const dir = path.join(EXPERIENCES_DIR, scopeToDir(meta));
     fs.mkdirSync(dir, { recursive: true });
+    // Dedup: skip if identical content already exists in this scope
+    const trimmed = content.trim();
+    if (isDuplicate(dir, trimmed)) {
+        // Return existing experience instead of creating duplicate
+        const existing = findByContent(dir, trimmed);
+        return existing;
+    }
     const date = new Date().toISOString().slice(0, 10);
     const slug = generateSlug(content);
     const rand = randomSuffix();
     const filename = `${date}-${slug}-${rand}.md`;
     const filePath = path.join(dir, filename);
-    const fileContent = matter.stringify(content.trim() + "\n", meta);
+    const fileContent = matter.stringify(trimmed + "\n", meta);
     fs.writeFileSync(filePath, fileContent, "utf-8");
     const id = path.relative(EXPERIENCES_DIR, filePath).replace(/\\/g, "/");
-    return { id, meta, content: content.trim(), filePath };
+    return { id, meta, content: trimmed, filePath };
+}
+function isDuplicate(dir, content) {
+    return findByContent(dir, content) !== null;
+}
+function findByContent(dir, content) {
+    if (!fs.existsSync(dir))
+        return null;
+    for (const file of fs.readdirSync(dir)) {
+        if (!file.endsWith(".md"))
+            continue;
+        const fp = path.join(dir, file);
+        const exp = readExperience(fp);
+        if (exp && exp.content === content)
+            return exp;
+    }
+    return null;
 }
 export function readExperience(filePath) {
     try {

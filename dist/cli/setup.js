@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execFileSync } from "node:child_process";
+import matter from "gray-matter";
 import { getSkillseedDir, getExperiencesDir, getSkillsDir } from "../store/file-store.js";
 /** Detect which AI CLIs are installed */
 export function detectClis() {
@@ -72,18 +73,37 @@ export function initSkillseedDir(importStarters) {
 }
 /** Copy starter experiences to ~/.skillseed/experiences/universal/ */
 function copyStarters(skillseedDir) {
-    // Find starters directory relative to this package
     const startersDir = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..", "..", "starters", "universal");
     const destDir = path.join(skillseedDir, "experiences", "universal");
     if (!fs.existsSync(startersDir))
         return;
+    // Read existing content to avoid duplicates
+    const existingContent = new Set();
+    if (fs.existsSync(destDir)) {
+        for (const f of fs.readdirSync(destDir)) {
+            if (!f.endsWith(".md"))
+                continue;
+            try {
+                const { content } = matter(fs.readFileSync(path.join(destDir, f), "utf-8"));
+                existingContent.add(content.trim());
+            }
+            catch { /* skip */ }
+        }
+    }
     for (const file of fs.readdirSync(startersDir)) {
         if (!file.endsWith(".md"))
             continue;
-        const destFile = path.join(destDir, file);
-        if (!fs.existsSync(destFile)) {
-            fs.copyFileSync(path.join(startersDir, file), destFile);
+        try {
+            const raw = fs.readFileSync(path.join(startersDir, file), "utf-8");
+            const { content } = matter(raw);
+            if (existingContent.has(content.trim()))
+                continue; // already exists
+            const destFile = path.join(destDir, file);
+            if (!fs.existsSync(destFile)) {
+                fs.copyFileSync(path.join(startersDir, file), destFile);
+            }
         }
+        catch { /* skip */ }
     }
 }
 /** Configure Claude CLI MCP settings */

@@ -82,8 +82,8 @@ describe("MCP tools integration", () => {
 
   it("experience count tracks correctly", () => {
     const before = getExperienceCount();
-    logExperience({ content: "Always validate user input before processing in any API handler" });
-    logExperience({ content: "Use structured logging with correlation IDs for distributed tracing" });
+    logExperience({ content: "Count test alpha: always review database migrations before deploying" });
+    logExperience({ content: "Count test beta: use feature flags for gradual rollouts" });
     expect(getExperienceCount()).toBe(before + 2);
   });
 
