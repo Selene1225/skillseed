@@ -1,1 +1,5 @@
 # MarsIWE Workspace
+node_modules/
+dist/
+*.js.map
+.cache/
