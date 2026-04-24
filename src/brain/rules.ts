@@ -125,7 +125,7 @@ export function inferMeta(content: string, hints?: {
 
 /** Check if content might be misclassified as too low sensitivity */
 export function checkSensitivityTooLow(content: string, declared: Sensitivity): string | null {
-  if (declared === "confidential") return null; // Already high
+  if (declared === "confidential" || declared === "private") return null; // Already high
   for (const { pattern, label } of SENSITIVE_PATTERNS) {
     if (pattern.test(content)) {
       if (declared === "public") {

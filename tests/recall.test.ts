@@ -46,14 +46,16 @@ describe("recall service", () => {
     const { logExperience } = await import("../src/service/experience.js");
     const { recall } = await import("../src/service/recall.js");
 
-    // Log many experiences
+    // Log many experiences with enough content to exceed a small budget
     for (let i = 0; i < 10; i++) {
-      logExperience({ content: `Deploy tip number ${i}: always check logs after deployment step ${i}`, tags: ["deployment"] });
+      logExperience({ content: `Deploy tip number ${i}: always check logs after deployment step ${i} and verify the rollback plan is in place`, tags: ["deployment"] });
     }
 
-    const result = recall({ query: "deployment", maxTokens: 200, limit: 10 });
-    // Should return fewer than 10 due to token budget
-    expect(result.total).toBeLessThanOrEqual(10);
+    const allResults = recall({ query: "deployment", limit: 10 });
+    const budgeted = recall({ query: "deployment", maxTokens: 100, limit: 10 });
+    // Budget should return fewer results than unbounded
+    expect(budgeted.total).toBeLessThan(allResults.total);
+    expect(budgeted.total).toBeGreaterThan(0);
   });
 
   it("respects limit parameter", async () => {

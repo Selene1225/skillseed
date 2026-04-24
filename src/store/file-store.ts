@@ -46,20 +46,16 @@ export interface SearchResult {
   score: number;
 }
 
-const SKILLSEED_DIR = path.join(os.homedir(), ".skillseed");
-const EXPERIENCES_DIR = path.join(SKILLSEED_DIR, "experiences");
-const SKILLS_DIR = path.join(SKILLSEED_DIR, "skills");
-
 export function getSkillseedDir(): string {
-  return SKILLSEED_DIR;
+  return path.join(os.homedir(), ".skillseed");
 }
 
 export function getExperiencesDir(): string {
-  return EXPERIENCES_DIR;
+  return path.join(getSkillseedDir(), "experiences");
 }
 
 export function getSkillsDir(): string {
-  return SKILLS_DIR;
+  return path.join(getSkillseedDir(), "skills");
 }
 
 function generateSlug(content: string): string {
@@ -87,7 +83,7 @@ function scopeToDir(meta: ExperienceFrontmatter): string {
 }
 
 export function writeExperience(meta: ExperienceFrontmatter, content: string): Experience {
-  const dir = path.join(EXPERIENCES_DIR, scopeToDir(meta));
+  const dir = path.join(getExperiencesDir(), scopeToDir(meta));
   fs.mkdirSync(dir, { recursive: true });
 
   // Dedup: skip if identical content already exists in this scope
@@ -107,7 +103,7 @@ export function writeExperience(meta: ExperienceFrontmatter, content: string): E
   const fileContent = matter.stringify(trimmed + "\n", meta);
   fs.writeFileSync(filePath, fileContent, "utf-8");
 
-  const id = path.relative(EXPERIENCES_DIR, filePath).replace(/\\/g, "/");
+  const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
   return { id, meta, content: trimmed, filePath };
 }
 
@@ -130,7 +126,7 @@ export function readExperience(filePath: string): Experience | null {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     const { data, content } = matter(raw);
-    const id = path.relative(EXPERIENCES_DIR, filePath).replace(/\\/g, "/");
+    const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
     return {
       id,
       meta: data as ExperienceFrontmatter,
@@ -155,7 +151,7 @@ export function updateExperienceMeta(filePath: string, updates: Partial<Experien
 
 export function listAllExperiences(): Experience[] {
   const results: Experience[] = [];
-  if (!fs.existsSync(EXPERIENCES_DIR)) return results;
+  if (!fs.existsSync(getExperiencesDir())) return results;
 
   function walk(dir: string): void {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -168,7 +164,7 @@ export function listAllExperiences(): Experience[] {
       }
     }
   }
-  walk(EXPERIENCES_DIR);
+  walk(getExperiencesDir());
   return results;
 }
 

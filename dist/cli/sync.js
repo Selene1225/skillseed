@@ -287,19 +287,28 @@ export function getSyncStatus() {
 // ── Audit (dry-run) ──────────────────────────────────────────────────
 export function audit() {
     const dir = getSkillseedDir();
+    // Save current staging state
+    const beforeStaged = gitSafe(["diff", "--cached", "--name-only"], dir) ?? "";
     gitSafe(["add", "."], dir);
     filterSensitiveFiles(dir);
     const status = gitSafe(["status", "--porcelain"], dir) ?? "";
     if (!status) {
         console.log("Nothing to push — everything is up-to-date.");
-        return;
     }
-    console.log("Files that would be pushed:\n");
-    for (const line of status.split("\n").filter(Boolean)) {
-        console.log(`  ${line}`);
+    else {
+        console.log("Files that would be pushed:\n");
+        for (const line of status.split("\n").filter(Boolean)) {
+            console.log(`  ${line}`);
+        }
     }
-    // Reset staging (audit only)
-    gitSafe(["reset", "HEAD"], dir);
+    // Restore: unstage everything we staged
+    gitSafe(["reset"], dir);
+    // Re-stage what was originally staged
+    if (beforeStaged) {
+        for (const file of beforeStaged.split("\n").filter(Boolean)) {
+            gitSafe(["add", file], dir);
+        }
+    }
 }
 // ── Internal helpers ─────────────────────────────────────────────────
 /** Rename 'master' to 'main' if needed */

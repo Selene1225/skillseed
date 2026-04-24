@@ -8,7 +8,9 @@ import { serveStdio, serveHttp } from "../server/mcp.js";
 import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, configureCopilotCli, configureCodex, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
-const VERSION = "0.1.0";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const VERSION = require("../../package.json").version;
 async function main() {
     const command = process.argv[2];
     switch (command) {

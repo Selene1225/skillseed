@@ -6,17 +6,14 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import matter from "gray-matter";
-const SKILLSEED_DIR = path.join(os.homedir(), ".skillseed");
-const EXPERIENCES_DIR = path.join(SKILLSEED_DIR, "experiences");
-const SKILLS_DIR = path.join(SKILLSEED_DIR, "skills");
 export function getSkillseedDir() {
-    return SKILLSEED_DIR;
+    return path.join(os.homedir(), ".skillseed");
 }
 export function getExperiencesDir() {
-    return EXPERIENCES_DIR;
+    return path.join(getSkillseedDir(), "experiences");
 }
 export function getSkillsDir() {
-    return SKILLS_DIR;
+    return path.join(getSkillseedDir(), "skills");
 }
 function generateSlug(content) {
     // Take first 50 chars, lowercase, replace non-alphanumeric with dashes
@@ -40,7 +37,7 @@ function scopeToDir(meta) {
     }
 }
 export function writeExperience(meta, content) {
-    const dir = path.join(EXPERIENCES_DIR, scopeToDir(meta));
+    const dir = path.join(getExperiencesDir(), scopeToDir(meta));
     fs.mkdirSync(dir, { recursive: true });
     // Dedup: skip if identical content already exists in this scope
     const trimmed = content.trim();
@@ -56,7 +53,7 @@ export function writeExperience(meta, content) {
     const filePath = path.join(dir, filename);
     const fileContent = matter.stringify(trimmed + "\n", meta);
     fs.writeFileSync(filePath, fileContent, "utf-8");
-    const id = path.relative(EXPERIENCES_DIR, filePath).replace(/\\/g, "/");
+    const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
     return { id, meta, content: trimmed, filePath };
 }
 function isDuplicate(dir, content) {
@@ -79,7 +76,7 @@ export function readExperience(filePath) {
     try {
         const raw = fs.readFileSync(filePath, "utf-8");
         const { data, content } = matter(raw);
-        const id = path.relative(EXPERIENCES_DIR, filePath).replace(/\\/g, "/");
+        const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
         return {
             id,
             meta: data,
@@ -102,7 +99,7 @@ export function updateExperienceMeta(filePath, updates) {
 }
 export function listAllExperiences() {
     const results = [];
-    if (!fs.existsSync(EXPERIENCES_DIR))
+    if (!fs.existsSync(getExperiencesDir()))
         return results;
     function walk(dir) {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -117,7 +114,7 @@ export function listAllExperiences() {
             }
         }
     }
-    walk(EXPERIENCES_DIR);
+    walk(getExperiencesDir());
     return results;
 }
 /** Search experiences — interface designed for future index swap */

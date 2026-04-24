@@ -9,7 +9,9 @@ import http from "node:http";
 import { registerTools } from "./tools.js";
 import { batchCommitAndPush } from "../cli/sync.js";
 
-const PKG_VERSION = "0.1.0";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const PKG_VERSION: string = (require("../../package.json") as { version: string }).version;
 const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 function createServer(): McpServer {

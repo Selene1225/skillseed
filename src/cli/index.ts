@@ -24,7 +24,9 @@ import {
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 
-const VERSION = "0.1.0";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const VERSION: string = (require("../../package.json") as { version: string }).version;
 
 async function main(): Promise<void> {
   const command = process.argv[2];
