@@ -4,7 +4,7 @@ sensitivity: public
 category: good_practice
 tags: [code-review, pr, best-practice]
 confidence: 1.0
-source: import
+source: starter-pack
 created: "2025-01-01"
 updated: "2025-01-01"
 used: 0
