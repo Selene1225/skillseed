@@ -7,8 +7,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import http from "node:http";
 import { registerTools } from "./tools.js";
+import { batchCommitAndPush } from "../cli/sync.js";
 
 const PKG_VERSION = "0.1.0";
+const SYNC_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 
 function createServer(): McpServer {
   const server = new McpServer({
@@ -24,7 +26,22 @@ export async function serveStdio(): Promise<void> {
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // stdio keeps running until parent closes the pipe
+
+  // Background sync: pull on start, batch every 30 min
+  batchCommitAndPush().catch(() => {});
+  const syncTimer = setInterval(() => {
+    batchCommitAndPush().catch(() => {});
+  }, SYNC_INTERVAL_MS);
+
+  // Graceful shutdown: commit + push before exit
+  const shutdown = () => {
+    clearInterval(syncTimer);
+    batchCommitAndPush()
+      .catch(() => {})
+      .finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 /** Start in HTTP mode (multi-client) */

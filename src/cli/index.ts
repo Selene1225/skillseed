@@ -18,6 +18,7 @@ import {
   setDeviceType,
   setTransport,
 } from "./setup.js";
+import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 
 const VERSION = "0.1.0";
@@ -40,6 +41,9 @@ async function main(): Promise<void> {
       break;
     case "list":
       runList();
+      break;
+    case "sync":
+      await runSync();
       break;
     case "--version":
     case "-v":
@@ -67,6 +71,10 @@ Commands:
   start     Start MCP server in HTTP mode (multi-client)
   status    Show current status
   list      List stored experiences
+  sync      Sync experiences (pull + commit + push)
+              --setup URL   Configure remote manually
+              --status      Show sync state
+              --audit       Dry-run: show what would be pushed
 
 Options:
   -v, --version   Show version
@@ -122,6 +130,9 @@ async function runInit(): Promise<void> {
     console.log(ok ? "   ✅ Gemini: MCP server configured" : "   ⚠️  Gemini: config failed");
   }
 
+  // 6. Sync setup
+  await setupSync();
+
   console.log(`
 🌱 Skillseed is ready!
    Data: ${getSkillseedDir()}
@@ -171,6 +182,10 @@ function runStatus(): void {
 
   const experiences = listAllExperiences();
   console.log(`   Experiences: ${experiences.length}`);
+
+  const syncState = getSyncStatus();
+  const icon = syncState.state === "ok" ? "✅" : syncState.state === "auth_error" ? "❌" : "⚠";
+  console.log(`   Sync: ${icon} ${syncState.detail}`);
   console.log();
 }
 
@@ -187,6 +202,21 @@ function runList(): void {
     console.log(`  [${exp.meta.scope}] ${firstLine}`);
     console.log(`    tags: ${exp.meta.tags.join(", ")} | confidence: ${exp.meta.confidence} | ${exp.meta.created}`);
     console.log();
+  }
+}
+
+async function runSync(): Promise<void> {
+  const arg = process.argv[3];
+  if (arg === "--status") {
+    const s = getSyncStatus();
+    const icon = s.state === "ok" ? "✅" : s.state === "auth_error" ? "❌" : "⚠";
+    console.log(`Sync: ${icon} ${s.detail}`);
+  } else if (arg === "--audit") {
+    audit();
+  } else if (arg === "--setup") {
+    await setupSync();
+  } else {
+    await sync();
   }
 }
 

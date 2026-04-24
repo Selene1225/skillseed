@@ -12,6 +12,7 @@ import {
 } from "../store/file-store.js";
 import { inferMeta, checkGranularity, checkSensitivityTooLow, sanitize } from "../brain/rules.js";
 import { refineAsync } from "../brain/invoker.js";
+import { stageChanges } from "../cli/sync.js";
 
 export interface LogInput {
   content: string;
@@ -92,6 +93,9 @@ export function logExperience(input: LogInput): LogResult {
   ) as ExperienceFrontmatter;
 
   const exp = writeExperience(cleanMeta, content);
+
+  // Stage for sync (non-blocking, no-op if sync not configured)
+  stageChanges(exp.filePath);
 
   // Fire async Brain CLI refinement (never blocks)
   refineAsync(exp.filePath, content, meta);

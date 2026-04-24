@@ -4,6 +4,7 @@
 import { writeExperience, listAllExperiences, } from "../store/file-store.js";
 import { inferMeta, checkGranularity, checkSensitivityTooLow, sanitize } from "../brain/rules.js";
 import { refineAsync } from "../brain/invoker.js";
+import { stageChanges } from "../cli/sync.js";
 export function logExperience(input) {
     const warnings = [];
     // Sanitize content
@@ -55,6 +56,8 @@ export function logExperience(input) {
     // Strip undefined values (gray-matter/js-yaml can't dump undefined)
     const cleanMeta = Object.fromEntries(Object.entries(meta).filter(([, v]) => v !== undefined));
     const exp = writeExperience(cleanMeta, content);
+    // Stage for sync (non-blocking, no-op if sync not configured)
+    stageChanges(exp.filePath);
     // Fire async Brain CLI refinement (never blocks)
     refineAsync(exp.filePath, content, meta);
     return { success: true, id: exp.id, warnings };
