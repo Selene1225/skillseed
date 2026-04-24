@@ -296,25 +296,34 @@ export function configureGemini(transport, port) {
 }
 /** Update config.json with brain CLI choice */
 export function setBrainCli(cli) {
-    const configPath = path.join(getSkillseedDir(), "config.json");
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    config.brain_cli = cli;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    try {
+        const configPath = path.join(getSkillseedDir(), "config.json");
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        config.brain_cli = cli;
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    }
+    catch { /* config not ready yet */ }
 }
 /** Update config.json with device type */
 export function setDeviceType(type) {
-    const configPath = path.join(getSkillseedDir(), "config.json");
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    config.device_type = type;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    try {
+        const configPath = path.join(getSkillseedDir(), "config.json");
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        config.device_type = type;
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    }
+    catch { /* config not ready yet */ }
 }
 /** Update config.json with transport */
 export function setTransport(transport, port) {
-    const configPath = path.join(getSkillseedDir(), "config.json");
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    config.transport = transport;
-    if (port)
-        config.port = port;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    try {
+        const configPath = path.join(getSkillseedDir(), "config.json");
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        config.transport = transport;
+        if (port)
+            config.port = port;
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    }
+    catch { /* config not ready yet */ }
 }
 //# sourceMappingURL=setup.js.map

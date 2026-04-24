@@ -5,7 +5,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import matter from "gray-matter";
 import { getSkillseedDir } from "../store/file-store.js";
 import { createInterface } from "node:readline";
@@ -30,7 +30,7 @@ function gitSafe(args, cwd) {
     }
 }
 function ghExec(args) {
-    return execSync(`gh ${args}`, { timeout: 30_000, encoding: "utf-8" }).trim();
+    return execFileSync("gh", args, { timeout: 30_000, encoding: "utf-8" }).trim();
 }
 function ghSafe(args) {
     try {
@@ -98,7 +98,7 @@ export function stageChanges(filePath) {
     if (!hasRemote)
         return; // no sync configured
     try {
-        const rel = path.relative(dataDir, filePath);
+        const rel = path.relative(dataDir, filePath).replace(/\\/g, "/");
         gitSafe(["add", rel], dataDir);
     }
     catch {
@@ -207,7 +207,7 @@ export async function setupSync() {
     }
     // Check gh CLI
     console.log("\n   Checking GitHub CLI...");
-    const ghStatus = ghSafe("auth status");
+    const ghStatus = ghSafe(["auth", "status"]);
     if (ghStatus === null) {
         // No gh CLI — manual fallback
         console.log("   ❌ gh CLI not found\n");
@@ -310,11 +310,11 @@ function ensureMainBranch(dataDir) {
     }
 }
 function checkAuth() {
-    return ghSafe("auth status") !== null;
+    return ghSafe(["auth", "status"]) !== null;
 }
 function extractGhUsername() {
     try {
-        const out = execSync("gh api user --jq .login", { timeout: 10_000, encoding: "utf-8" }).trim();
+        const out = execFileSync("gh", ["api", "user", "--jq", ".login"], { timeout: 10_000, encoding: "utf-8" }).trim();
         return out || null;
     }
     catch {
@@ -325,18 +325,18 @@ async function findExistingVault(username) {
     if (!username)
         return null;
     // 1. Try conventional name
-    const conventionalUrl = ghSafe(`repo view ${username}/${CONVENTIONAL_REPO} --json url --jq .url`);
+    const conventionalUrl = ghSafe(["repo", "view", `${username}/${CONVENTIONAL_REPO}`, "--json", "url", "--jq", ".url"]);
     if (conventionalUrl) {
         return { fullName: `${username}/${CONVENTIONAL_REPO}`, url: conventionalUrl };
     }
     // 2. Search repos for marker file
-    const reposJson = ghSafe(`repo list ${username} --json name,url --limit 50`);
+    const reposJson = ghSafe(["repo", "list", username, "--json", "name,url", "--limit", "50"]);
     if (!reposJson)
         return null;
     try {
         const repos = JSON.parse(reposJson);
         for (const repo of repos) {
-            const marker = ghSafe(`api repos/${username}/${repo.name}/contents/${MARKER_FILE} --jq .content`);
+            const marker = ghSafe(["api", `repos/${username}/${repo.name}/contents/${MARKER_FILE}`, "--jq", ".content"]);
             if (marker) {
                 return { fullName: `${username}/${repo.name}`, url: repo.url };
             }
@@ -351,16 +351,16 @@ async function createVaultRepo(dataDir, username) {
     const repoName = CONVENTIONAL_REPO;
     const fullName = username ? `${username}/${repoName}` : repoName;
     console.log(`\n   Creating private repo: ${fullName} ...`);
-    const result = ghSafe(`repo create ${repoName} --private --description "Skillseed experience vault" --confirm`);
+    const result = ghSafe(["repo", "create", repoName, "--private", "--description", "Skillseed experience vault", "--confirm"]);
     if (result === null) {
         // Try without --confirm (newer gh versions)
-        const result2 = ghSafe(`repo create ${repoName} --private --description "Skillseed experience vault"`);
+        const result2 = ghSafe(["repo", "create", repoName, "--private", "--description", "Skillseed experience vault"]);
         if (result2 === null) {
             console.log("   ❌ Failed to create repo. You can create it manually and run sync --setup.");
             return;
         }
     }
-    const repoUrl = ghSafe(`repo view ${fullName} --json url --jq .url`);
+    const repoUrl = ghSafe(["repo", "view", fullName, "--json", "url", "--jq", ".url"]);
     if (!repoUrl) {
         console.log("   ❌ Repo created but couldn't get URL.");
         return;

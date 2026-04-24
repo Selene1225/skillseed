@@ -82,8 +82,9 @@ describe("MCP tools integration", () => {
 
   it("experience count tracks correctly", () => {
     const before = getExperienceCount();
-    logExperience({ content: "Count test alpha: always review database migrations before deploying" });
-    logExperience({ content: "Count test beta: use feature flags for gradual rollouts" });
+    const ts = Date.now();
+    logExperience({ content: `Count test ${ts}-a: always review database migrations before deploying` });
+    logExperience({ content: `Count test ${ts}-b: use feature flags for gradual rollouts` });
     expect(getExperienceCount()).toBe(before + 2);
   });
 

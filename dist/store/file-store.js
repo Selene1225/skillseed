@@ -95,7 +95,8 @@ export function updateExperienceMeta(filePath, updates) {
     const exp = readExperience(filePath);
     if (!exp)
         return;
-    const newMeta = { ...exp.meta, ...updates, updated: new Date().toISOString().slice(0, 10) };
+    const merged = { ...exp.meta, ...updates, updated: new Date().toISOString().slice(0, 10) };
+    const newMeta = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined));
     const fileContent = matter.stringify(exp.content + "\n", newMeta);
     fs.writeFileSync(filePath, fileContent, "utf-8");
 }
@@ -145,10 +146,10 @@ export function search(opts) {
         if (opts.scope && exp.meta.scope !== opts.scope) {
             continue; // skip non-matching scope
         }
-        // Boost by usage and recency
-        score += Math.min(exp.meta.used, 10);
-        score += exp.meta.confidence * 5;
+        // Boost by usage and recency (only if already matched by query/tags)
         if (score > 0) {
+            score += Math.min(exp.meta.used, 10);
+            score += exp.meta.confidence * 5;
             scored.push({ experience: exp, score });
         }
     }

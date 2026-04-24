@@ -40,6 +40,8 @@ export async function serveStdio() {
 /** Start in HTTP mode (multi-client) */
 export async function serveHttp(port = 9527) {
     const server = createServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => `session-${Date.now()}` });
+    await server.connect(transport);
     const httpServer = http.createServer(async (req, res) => {
         if (req.url === "/health") {
             res.writeHead(200, { "Content-Type": "application/json" });
@@ -47,8 +49,6 @@ export async function serveHttp(port = 9527) {
             return;
         }
         if (req.url === "/mcp" && req.method === "POST") {
-            const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => `session-${Date.now()}` });
-            await server.connect(transport);
             await transport.handleRequest(req, res);
             return;
         }
@@ -61,12 +61,10 @@ export async function serveHttp(port = 9527) {
             resolve(httpServer);
         });
         httpServer.on("error", (err) => {
-            if (err.code === "EADDRINUSE") {
+            if (err.code === "EADDRINUSE" && port < 9537) {
                 console.log(`Port ${port} in use, trying ${port + 1}...`);
-                httpServer.listen(port + 1, () => {
-                    console.log(`🌱 Skillseed MCP server running on http://localhost:${port + 1}/mcp`);
-                    resolve(httpServer);
-                });
+                httpServer.close();
+                serveHttp(port + 1).then(resolve, reject);
             }
             else {
                 reject(err);
