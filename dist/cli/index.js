@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { serveStdio, serveHttp } from "../server/mcp.js";
-import { detectClis, initSkillseedDir, configureClaude, configureGemini, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
+import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 const VERSION = "0.1.0";
@@ -105,6 +105,9 @@ async function runInit() {
         const ok = configureGemini(transport, port);
         console.log(ok ? "   ✅ Gemini: MCP server configured" : "   ⚠️  Gemini: config failed");
     }
+    // VSCode global config (Copilot + Claude extension)
+    const vscodeOk = configureVSCode(transport, port);
+    console.log(vscodeOk ? "   ✅ VSCode: MCP server configured (Copilot + Claude)" : "   ⚠️  VSCode: settings.json not found, skip");
     // 6. Sync setup
     await setupSync();
     console.log(`

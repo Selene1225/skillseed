@@ -15,6 +15,8 @@ export declare function initSkillseedDir(importStarters: boolean): void;
 export declare function configureClaude(transport: "stdio" | "http", port: number): boolean;
 /** Inject Skillseed instructions into CLAUDE.md */
 export declare function injectClaudeMd(): boolean;
+/** Configure VSCode global MCP settings (works for Copilot + Claude extension) */
+export declare function configureVSCode(transport: "stdio" | "http", port: number): boolean;
 /** Configure Gemini CLI MCP settings */
 export declare function configureGemini(transport: "stdio" | "http", port: number): boolean;
 /** Update config.json with brain CLI choice */
