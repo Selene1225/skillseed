@@ -26,7 +26,7 @@ describe("recall service", () => {
     const result = recall({ query: "how to deploy" });
     expect(result.total).toBe(0);
     expect(result.hint).toBeTruthy();
-    expect(result.hint).toContain("No experiences found");
+    expect(result.hint).toContain("No relevant experiences");
   });
 
   it("recalls matching experiences", async () => {

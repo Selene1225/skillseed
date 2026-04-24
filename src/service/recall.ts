@@ -39,21 +39,25 @@ export function recall(input: RecallInput): RecallResult {
 
   const results = search(opts);
 
-  if (results.length === 0) {
+  // Filter low-score results (minimum relevance threshold)
+  const MIN_SCORE = 10;
+  const relevant = results.filter(r => r.score >= MIN_SCORE);
+
+  if (relevant.length === 0) {
     return {
       results: [],
       total: 0,
-      hint: `No experiences found for "${input.query}". Try broader keywords, or log some experiences first with seed_log.`,
+      hint: "No relevant experiences found.",
     };
   }
 
   return {
-    results: results.map(r => ({
+    results: relevant.map(r => ({
       id: r.experience.id,
       summary: formatSummary(r.experience),
       score: r.score,
     })),
-    total: results.length,
+    total: relevant.length,
   };
 }
 

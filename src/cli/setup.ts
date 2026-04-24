@@ -162,17 +162,23 @@ export function injectClaudeMd(): boolean {
 
 You have access to the user's work experience library via Skillseed MCP tools.
 
-**When to use:**
-- \`seed_recall\`: Before starting any task, search for relevant past experiences
-- \`seed_log\`: When the user discovers something useful, makes a mistake, or you learn something about their workflow
-- \`seed_preference_get\`: At the start of conversations to personalize your responses
-- \`seed_preference_set\`: When the user expresses consistent preferences
+**When to call seed_recall:**
+- Before writing code, configs, or technical documents
+- After the user corrects you (check for similar past corrections)
+- When stuck or failing repeatedly on a task
+- Do NOT call for simple questions, greetings, or general knowledge
 
-**Guidelines:**
-- Always check for relevant experiences before giving advice
-- Log lessons learned, corrections, and best practices automatically
-- Be concise when logging — one clear experience per entry
-- Include relevant tags for better retrieval
+**When to call seed_log:**
+- When the user corrects you (always log corrections with category: correction)
+- When a debugging session reveals a non-obvious solution
+- When the user explicitly asks to remember something
+- Do NOT log trivial or well-known facts
+
+**When to call seed_preference_get:**
+- Once at start of conversation, ONLY if producing output (code, docs, emails)
+
+**When to call seed_preference_set:**
+- When the user states a consistent preference ("I always want...", "Never do...")
 ${endMarker}`;
 
   try {

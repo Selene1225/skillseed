@@ -8,7 +8,7 @@ import { recall } from "../service/recall.js";
 import { preferenceGet, preferenceSet } from "../service/preference.js";
 export function registerTools(server) {
     // seed_log — Record a work experience
-    server.tool("seed_log", "Record a work experience, lesson, or best practice. Use when the user discovers something useful, makes a mistake, or establishes a pattern.", {
+    server.tool("seed_log", "Record a work experience or lesson learned. Call when: (1) user corrects you, (2) a non-obvious solution is found after debugging, (3) user explicitly asks to remember something. Do NOT call for trivial facts or well-known information.", {
         content: z.string().describe("The experience content in natural language"),
         scope: z.enum(["universal", "domain", "company", "team", "project", "personal"]).optional()
             .describe("Scope level (auto-inferred if not provided)"),
@@ -29,7 +29,7 @@ export function registerTools(server) {
         return { content: [{ type: "text", text }] };
     });
     // seed_recall — Search past experiences
-    server.tool("seed_recall", "Search past work experiences. Use before starting tasks to bring relevant context, or when the user asks about past lessons.", {
+    server.tool("seed_recall", "Search past work experiences. Call when: (1) writing code or configs and need project-specific context, (2) user corrected you — check for similar past corrections, (3) stuck or failing repeatedly. Do NOT call for simple questions, greetings, or general knowledge.", {
         query: z.string().describe("What to search for"),
         scope: z.enum(["universal", "domain", "company", "team", "project", "personal"]).optional(),
         tags: z.array(z.string()).optional(),
@@ -45,7 +45,7 @@ export function registerTools(server) {
         return { content: [{ type: "text", text }] };
     });
     // seed_preference_get — Get user preferences
-    server.tool("seed_preference_get", "Get user preferences (language, email style, work hours, etc). Call at conversation start to personalize responses.", {
+    server.tool("seed_preference_get", "Get user preferences. Call once at start ONLY if producing output (code, docs, emails). Do NOT call for simple Q&A or greetings.", {
         key: z.string().optional().describe("Preference key, or omit to get all"),
     }, async (params) => {
         const result = preferenceGet(params.key);
