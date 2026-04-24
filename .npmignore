@@ -1,0 +1,6 @@
+# npm should use "files" field in package.json, not .gitignore
+# This file overrides .gitignore for npm packaging
+node_modules/
+src/
+tests/
+.cache/
