@@ -8,12 +8,11 @@
   },
   "main": "./dist/index.js",
   "scripts": {
-    "build": "npx tsc",
+    "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "start": "node dist/cli/index.js start",
-    "prepare": "npm run build"
+    "start": "node dist/cli/index.js start"
   },
   "keywords": [
     "ai",
