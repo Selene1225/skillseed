@@ -123,7 +123,7 @@ export async function sync(dataDir?: string): Promise<void> {
   const dir = dataDir ?? getSkillseedDir();
   const remote = gitSafe(["remote"], dir);
   if (!remote) {
-    console.log("❌ Sync not configured. Run 'skillseed init' to set up sync.");
+    console.log("❌ Sync not configured. Run 'seed init' to set up sync.");
     return;
   }
 
@@ -133,11 +133,21 @@ export async function sync(dataDir?: string): Promise<void> {
     return;
   }
 
+  // Ensure branch is 'main'
+  ensureMainBranch(dir);
+  const branch = gitSafe(["branch", "--show-current"], dir) ?? "main";
+
   // 1. Pull
   console.log("⬇ Pulling...");
-  const pullResult = gitSafe(["pull", "--no-edit"], dir);
+  const pullResult = gitSafe(["pull", "origin", branch, "--no-edit"], dir);
   if (pullResult === null) {
-    console.log("⚠ Pull failed — continuing with local data");
+    // Maybe remote is empty (first push)
+    const remoteHead = gitSafe(["ls-remote", "--heads", "origin", branch], dir);
+    if (!remoteHead || remoteHead.length === 0) {
+      console.log("   (remote is empty — will push for the first time)");
+    } else {
+      console.log("⚠ Pull failed — continuing with local data");
+    }
   }
 
   // 2. Stage all changes
@@ -158,12 +168,17 @@ export async function sync(dataDir?: string): Promise<void> {
 
   // 5. Push
   console.log("⬆ Pushing...");
-  const pushResult = gitSafe(["push"], dir);
+  const pushResult = gitSafe(["push", "-u", "origin", branch], dir);
   if (pushResult === null) {
     console.log("⚠ Push failed (offline?)");
   } else {
     const total = countExperiences(dir);
     console.log(`✅ Synced (total: ${total} experiences)`);
+
+    // Record sync time
+    const config = getConfig();
+    config.last_sync = new Date().toISOString();
+    saveConfig(config);
   }
 }
 
@@ -177,8 +192,11 @@ export async function batchCommitAndPush(dataDir?: string): Promise<void> {
 
   if (!checkAuth()) return; // silent fail for background
 
+  ensureMainBranch(dir);
+  const branch = gitSafe(["branch", "--show-current"], dir) ?? "main";
+
   // Pull first
-  gitSafe(["pull", "--no-edit"], dir);
+  gitSafe(["pull", "origin", branch, "--no-edit"], dir);
 
   // Stage all
   gitSafe(["add", "."], dir);
@@ -194,7 +212,12 @@ export async function batchCommitAndPush(dataDir?: string): Promise<void> {
   }
 
   // Push (silent fail if offline)
-  gitSafe(["push"], dir);
+  const pushResult = gitSafe(["push", "-u", "origin", branch], dir);
+  if (pushResult !== null) {
+    const config = getConfig();
+    config.last_sync = new Date().toISOString();
+    saveConfig(config);
+  }
 }
 
 // ── Setup Sync (init step 6) ─────────────────────────────────────────
@@ -322,6 +345,14 @@ export function audit(): void {
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────
+
+/** Rename 'master' to 'main' if needed */
+function ensureMainBranch(dataDir: string): void {
+  const branch = gitSafe(["branch", "--show-current"], dataDir);
+  if (branch === "master") {
+    gitSafe(["branch", "-M", "main"], dataDir);
+  }
+}
 
 function checkAuth(): boolean {
   return ghSafe("auth status") !== null;
