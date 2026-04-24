@@ -17,6 +17,10 @@ export declare function configureClaude(transport: "stdio" | "http", port: numbe
 export declare function injectClaudeMd(): boolean;
 /** Configure VSCode global MCP settings (works for Copilot + Claude extension) */
 export declare function configureVSCode(transport: "stdio" | "http", port: number): boolean;
+/** Configure GitHub Copilot CLI MCP settings (~/.copilot/mcp-config.json) */
+export declare function configureCopilotCli(transport: "stdio" | "http", port: number): boolean;
+/** Configure Codex CLI MCP settings (~/.codex/config.toml) */
+export declare function configureCodex(transport: "stdio" | "http", port: number): boolean;
 /** Configure Gemini CLI MCP settings */
 export declare function configureGemini(transport: "stdio" | "http", port: number): boolean;
 /** Update config.json with brain CLI choice */

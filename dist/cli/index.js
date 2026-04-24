@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { serveStdio, serveHttp } from "../server/mcp.js";
-import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
+import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, configureCopilotCli, configureCodex, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 const VERSION = "0.1.0";
@@ -108,6 +108,12 @@ async function runInit() {
     // VSCode global config (Copilot + Claude extension)
     const vscodeOk = configureVSCode(transport, port);
     console.log(vscodeOk ? "   ✅ VSCode: MCP server configured (Copilot + Claude)" : "   ⚠️  VSCode: settings.json not found, skip");
+    // GitHub Copilot CLI
+    const copilotOk = configureCopilotCli(transport, port);
+    console.log(copilotOk ? "   ✅ Copilot CLI: MCP server configured" : "   ⚠️  Copilot CLI: config not found, skip");
+    // Codex CLI
+    const codexOk = configureCodex(transport, port);
+    console.log(codexOk ? "   ✅ Codex: MCP server configured" : "   ⚠️  Codex: config not found, skip");
     // 6. Sync setup
     await setupSync();
     console.log(`

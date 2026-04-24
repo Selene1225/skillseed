@@ -189,6 +189,59 @@ export function configureVSCode(transport, port) {
         return false;
     }
 }
+/** Configure GitHub Copilot CLI MCP settings (~/.copilot/mcp-config.json) */
+export function configureCopilotCli(transport, port) {
+    const configPath = path.join(os.homedir(), ".copilot", "mcp-config.json");
+    try {
+        fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        let config = {};
+        if (fs.existsSync(configPath)) {
+            config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        }
+        if (!config.mcpServers)
+            config.mcpServers = {};
+        if (transport === "stdio") {
+            config.mcpServers.skillseed = {
+                type: "stdio",
+                command: "skillseed",
+                args: ["serve"],
+            };
+        }
+        else {
+            config.mcpServers.skillseed = {
+                type: "http",
+                url: `http://localhost:${port}/mcp`,
+            };
+        }
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+/** Configure Codex CLI MCP settings (~/.codex/config.toml) */
+export function configureCodex(transport, port) {
+    const configPath = path.join(os.homedir(), ".codex", "config.toml");
+    try {
+        if (!fs.existsSync(configPath))
+            return false;
+        let content = fs.readFileSync(configPath, "utf-8");
+        if (content.includes("[mcp_servers.skillseed]"))
+            return true; // already configured
+        if (transport === "stdio") {
+            content += `\n[mcp_servers.skillseed]\ntype = "stdio"\ncommand = "skillseed"\nargs = ["serve"]\n`;
+        }
+        else {
+            content += `\n[mcp_servers.skillseed]\ntype = "http"\nurl = "http://localhost:${port}/mcp"\n`;
+        }
+        fs.writeFileSync(configPath, content, "utf-8");
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 /** Configure Gemini CLI MCP settings */
 export function configureGemini(transport, port) {
     const geminiDir = path.join(os.homedir(), ".gemini");
