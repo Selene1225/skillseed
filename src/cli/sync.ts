@@ -346,7 +346,13 @@ export function audit(): void {
   }
 
   // Restore: unstage everything we staged
-  gitSafe(["reset"], dir);
+  // `git reset` fails on empty repos (no HEAD), use rm --cached instead
+  const hasHead = gitSafe(["rev-parse", "HEAD"], dir);
+  if (hasHead) {
+    gitSafe(["reset"], dir);
+  } else {
+    gitSafe(["rm", "-r", "--cached", "."], dir);
+  }
 
   // Re-stage what was originally staged
   if (beforeStaged) {
