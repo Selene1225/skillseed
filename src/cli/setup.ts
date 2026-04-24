@@ -117,8 +117,8 @@ export function configureClaude(transport: "stdio" | "http", port: number): bool
     if (transport === "stdio") {
       config.mcpServers.skillseed = {
         type: "stdio",
-        command: "npx",
-        args: ["skillseed", "serve"],
+        command: "skillseed",
+        args: ["serve"],
       };
     } else {
       config.mcpServers.skillseed = {
@@ -180,6 +180,41 @@ ${endMarker}`;
   }
 }
 
+/** Configure VSCode global MCP settings (works for Copilot + Claude extension) */
+export function configureVSCode(transport: "stdio" | "http", port: number): boolean {
+  const settingsPath = path.join(
+    process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"),
+    "Code", "User", "settings.json"
+  );
+
+  try {
+    if (!fs.existsSync(settingsPath)) return false;
+
+    let settings: Record<string, any> = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+
+    if (!settings["mcp"]) settings["mcp"] = {};
+    if (!settings["mcp"]["servers"]) settings["mcp"]["servers"] = {};
+
+    if (transport === "stdio") {
+      settings["mcp"]["servers"]["skillseed"] = {
+        type: "stdio",
+        command: "skillseed",
+        args: ["serve"],
+      };
+    } else {
+      settings["mcp"]["servers"]["skillseed"] = {
+        type: "http",
+        url: `http://localhost:${port}/mcp`,
+      };
+    }
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Configure Gemini CLI MCP settings */
 export function configureGemini(transport: "stdio" | "http", port: number): boolean {
   const geminiDir = path.join(os.homedir(), ".gemini");
@@ -198,8 +233,8 @@ export function configureGemini(transport: "stdio" | "http", port: number): bool
     if (transport === "stdio") {
       settings.mcpServers.skillseed = {
         type: "stdio",
-        command: "npx",
-        args: ["skillseed", "serve"],
+        command: "skillseed",
+        args: ["serve"],
       };
     } else {
       settings.mcpServers.skillseed = {
