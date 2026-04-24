@@ -1,10 +1,11 @@
 {
   "name": "skillseed",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Personal work experience engine — gives your AI CLI a memory.",
   "type": "module",
   "bin": {
-    "skillseed": "./dist/cli/index.js"
+    "skillseed": "./dist/cli/index.js",
+    "seed": "./dist/cli/index.js"
   },
   "main": "./dist/index.js",
   "scripts": {
