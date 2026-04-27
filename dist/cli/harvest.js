@@ -165,7 +165,7 @@ function extractWithLlm(chunk, brainCli) {
             if (brainCli === "claude") {
                 output = execFileSync("claude", ["-p", "--bare"], {
                     encoding: "utf-8",
-                    timeout: 90_000,
+                    timeout: 180_000,
                     input: prompt,
                     stdio: ["pipe", "pipe", "pipe"],
                     maxBuffer: 1024 * 1024,
@@ -174,7 +174,7 @@ function extractWithLlm(chunk, brainCli) {
             else {
                 output = execFileSync(brainCli, ["-p"], {
                     encoding: "utf-8",
-                    timeout: 90_000,
+                    timeout: 180_000,
                     input: prompt,
                     stdio: ["pipe", "pipe", "pipe"],
                     maxBuffer: 1024 * 1024,
@@ -208,7 +208,13 @@ function extractWithLlm(chunk, brainCli) {
         }
     }
     catch (err) {
-        console.error(`   ⚠️  LLM extraction failed: ${err.message?.slice(0, 100)}`);
+        const msg = err.message || "";
+        if (msg.includes("ETIMEDOUT") || msg.includes("timed out")) {
+            console.error(`timeout (chunk too large, skipping)`);
+        }
+        else {
+            console.error(`failed: ${msg.slice(0, 80)}`);
+        }
     }
     return results;
 }

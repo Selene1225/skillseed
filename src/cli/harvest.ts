@@ -200,7 +200,7 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
       if (brainCli === "claude") {
         output = execFileSync("claude", ["-p", "--bare"], {
           encoding: "utf-8",
-          timeout: 90_000,
+          timeout: 180_000,
           input: prompt,
           stdio: ["pipe", "pipe", "pipe"],
           maxBuffer: 1024 * 1024,
@@ -208,7 +208,7 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
       } else {
         output = execFileSync(brainCli, ["-p"], {
           encoding: "utf-8",
-          timeout: 90_000,
+          timeout: 180_000,
           input: prompt,
           stdio: ["pipe", "pipe", "pipe"],
           maxBuffer: 1024 * 1024,
@@ -236,7 +236,12 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
       } catch { /* skip malformed JSON */ }
     }
   } catch (err) {
-    console.error(`   ⚠️  LLM extraction failed: ${(err as Error).message?.slice(0, 100)}`);
+    const msg = (err as Error).message || "";
+    if (msg.includes("ETIMEDOUT") || msg.includes("timed out")) {
+      console.error(`timeout (chunk too large, skipping)`);
+    } else {
+      console.error(`failed: ${msg.slice(0, 80)}`);
+    }
   }
 
   return results;
