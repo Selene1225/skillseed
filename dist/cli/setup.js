@@ -130,11 +130,38 @@ export function configureClaude(transport, port) {
             };
         }
         fs.writeFileSync(claudeConfigPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+        // Auto-allow seed tools (avoid permission prompts)
+        injectAllowedTools(claudeConfigPath);
         return true;
     }
     catch {
         return false;
     }
+}
+const SEED_TOOLS = [
+    "mcp__skillseed__seed_log",
+    "mcp__skillseed__seed_recall",
+    "mcp__skillseed__seed_preference_get",
+    "mcp__skillseed__seed_preference_set",
+];
+/** Add seed tools to allowedTools for all known project scopes */
+function injectAllowedTools(claudeConfigPath) {
+    try {
+        const config = JSON.parse(fs.readFileSync(claudeConfigPath, "utf-8"));
+        if (!config.projects)
+            return;
+        for (const [, project] of Object.entries(config.projects)) {
+            if (!Array.isArray(project.allowedTools))
+                project.allowedTools = [];
+            for (const tool of SEED_TOOLS) {
+                if (!project.allowedTools.includes(tool)) {
+                    project.allowedTools.push(tool);
+                }
+            }
+        }
+        fs.writeFileSync(claudeConfigPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    }
+    catch { /* non-critical */ }
 }
 /** Inject Skillseed instructions into CLAUDE.md */
 export function injectClaudeMd() {
@@ -163,6 +190,7 @@ Skillseed persists experiences across ALL AI tools (Claude, Copilot, Gemini, etc
 - After the user corrects you (check for similar past corrections)
 - When stuck or failing repeatedly on a task
 - Do NOT call for simple questions, greetings, or general knowledge
+- Do NOT call when the user is just setting a preference or asking you to remember something
 
 **When to call seed_preference_get:**
 - Once at start of conversation, ONLY if producing output (code, docs, emails)
