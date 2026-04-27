@@ -174,10 +174,13 @@ export function injectClaudeMd() {
 You have access to the user's work experience library via Skillseed MCP tools.
 Skillseed persists experiences across ALL AI tools (Claude, Copilot, Gemini, etc). When the user wants something remembered, ALSO save it to Skillseed so other tools can access it too.
 
+**CRITICAL — "记住/remember" = SAVE, never recall:**
+When the user says "记住", "remember", "记得", or "always/never do X", this is a SAVE operation. Call seed_preference_set or seed_log. Do NOT call seed_recall.
+
 **When to call seed_preference_set:**
-- When the user says "remember", "记住", "记得", or asks you to always/never do something
+- "记住", "remember", "记得", "always", "never", or any instruction about preferences
 - When the user states a language, style, or behavior preference
-- ALWAYS call this tool in addition to your own memory. Do NOT just say "ok" without saving.
+- ALWAYS call this tool. Do NOT just say "ok" without saving.
 
 **When to call seed_log:**
 - When the user corrects you (category: correction)
@@ -190,7 +193,7 @@ Skillseed persists experiences across ALL AI tools (Claude, Copilot, Gemini, etc
 - After the user corrects you (check for similar past corrections)
 - When stuck or failing repeatedly on a task
 - Do NOT call for simple questions, greetings, or general knowledge
-- Do NOT call when the user is just setting a preference or asking you to remember something
+- NEVER call when the user says "记住/remember/记得" — those are SAVE operations, not queries
 
 **When to call seed_preference_get:**
 - Once at start of conversation, ONLY if producing output (code, docs, emails)
