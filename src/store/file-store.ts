@@ -13,6 +13,7 @@ export interface ExperienceFrontmatter {
   sensitivity: "public" | "internal" | "confidential" | "private";
   category: "good_practice" | "problem" | "correction" | "knowledge" | "preference";
   tags: string[];
+  title?: string;
   company?: string;
   team?: string;
   project?: string;
@@ -251,8 +252,8 @@ export function search(opts: SearchOptions): SearchResult[] {
 export function formatSummary(exp: Experience): string {
   const scopeTag = `[${exp.meta.scope}${exp.meta.company ? ":" + exp.meta.company : ""}]`;
   const tags = exp.meta.tags.length > 0 ? ` [${exp.meta.tags.join(",")}]` : "";
-  const firstLine = exp.content.split("\n")[0].slice(0, 120);
-  return `${scopeTag}${tags} ${firstLine}`;
+  const title = exp.meta.title || exp.content.split("\n")[0].slice(0, 120);
+  return `${scopeTag}${tags} ${title}`;
 }
 
 /** Format experience as full detail */

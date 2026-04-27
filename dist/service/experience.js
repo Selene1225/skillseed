@@ -42,6 +42,7 @@ export function logExperience(input) {
         sensitivity,
         category,
         tags,
+        title: content.split("\n")[0].slice(0, 50),
         confidence: 0.8,
         source: input.source_cli ? "conversation" : "manual",
         source_cli: input.source_cli,

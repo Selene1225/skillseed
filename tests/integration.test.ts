@@ -41,7 +41,7 @@ describe("MCP tools integration", () => {
     // Recall
     const recallResult = recall({ query: "azure functions cold start" });
     expect(recallResult.total).toBeGreaterThan(0);
-    expect(recallResult.results[0].summary).toContain("WEBSITE_RUN_FROM_PACKAGE");
+    expect(recallResult.results[0].content).toContain("WEBSITE_RUN_FROM_PACKAGE");
   });
 
   it("seed_preference_set → seed_preference_get round-trip", () => {

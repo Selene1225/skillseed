@@ -7,6 +7,7 @@ export interface ExperienceFrontmatter {
     sensitivity: "public" | "internal" | "confidential" | "private";
     category: "good_practice" | "problem" | "correction" | "knowledge" | "preference";
     tags: string[];
+    title?: string;
     company?: string;
     team?: string;
     project?: string;

@@ -22,4 +22,19 @@ export declare function harvest(opts?: HarvestOptions): {
 };
 export declare function reviewPending(): Promise<void>;
 export declare function approveAll(): number;
+export declare function autoReview(opts?: {
+    brainCli?: string;
+    dryRun?: boolean;
+}): {
+    approved: number;
+    rejected: number;
+    uncertain: number;
+};
+export declare function backfillTitles(opts?: {
+    dryRun?: boolean;
+    brainCli?: string;
+}): {
+    total: number;
+    updated: number;
+};
 //# sourceMappingURL=harvest.d.ts.map

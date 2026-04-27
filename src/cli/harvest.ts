@@ -10,6 +10,7 @@ import os from "node:os";
 import readline from "node:readline";
 import { execFileSync } from "node:child_process";
 import { getSkillseedDir, writeExperience, listAllExperiences, type ExperienceFrontmatter } from "../store/file-store.js";
+import matter from "gray-matter";
 
 // --- Types ---
 
@@ -27,6 +28,7 @@ interface ConversationChunk {
 }
 
 interface PendingExperience {
+  title?: string;
   content: string;
   category: string;
   tags: string[];
@@ -168,6 +170,7 @@ function chunkConversation(turns: ConversationTurn[], file: string, project: str
 const EXTRACT_PROMPT = `You are analyzing a conversation excerpt to extract work experiences worth remembering.
 
 For each experience, output a JSON object on its own line with these fields:
+- title: short summary of the experience (max 50 chars, like a headline)
 - content: one clear sentence describing the lesson, practice, or solution (max 200 chars)
 - category: one of "good_practice", "problem", "correction", "knowledge"
 - tags: array of 2-5 relevant topic tags (lowercase)
@@ -178,6 +181,7 @@ Rules:
 - Extract LESSONS and PRINCIPLES, not API documentation or code descriptions
 - BAD: "Function X returns Y events" (this is API docs, not experience)
 - GOOD: "Streaming APIs should expose typed events so consumers can filter by type" (this is a reusable lesson)
+- title should be a concise label, e.g. "Graph API复用Bot凭据" or "Playwright overlay dialog fix"
 - Skip general knowledge anyone would know
 - Skip descriptions of how specific code/APIs work — that belongs in code comments
 - Focus on: mistakes made, corrections, workarounds, team conventions, debugging lessons, architectural decisions and WHY they were made
@@ -229,6 +233,7 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
         const obj = JSON.parse(trimmed);
         if (obj.content && obj.category) {
           results.push({
+            title: obj.title || undefined,
             content: obj.content,
             category: obj.category,
             tags: obj.tags || [],
@@ -268,6 +273,7 @@ function writePending(exp: PendingExperience): string {
 
   const frontmatter = [
     "---",
+    ...(exp.title ? [`title: "${exp.title}"`] : []),
     `category: ${exp.category}`,
     `tags: [${exp.tags.map(t => `"${t}"`).join(", ")}]`,
     `scope: ${exp.scope}`,
@@ -483,6 +489,7 @@ export async function reviewPending(): Promise<void> {
         sensitivity: "internal",
         category: (p.meta.category as ExperienceFrontmatter["category"]) || "knowledge",
         tags,
+        ...(p.meta.title && { title: p.meta.title }),
         confidence: 0.7, // harvested = slightly lower confidence
         source: "observation",
         source_cli: "harvest",
@@ -527,6 +534,7 @@ export function approveAll(): number {
       sensitivity: "internal",
       category: (p.meta.category as ExperienceFrontmatter["category"]) || "knowledge",
       tags,
+      ...(p.meta.title && { title: p.meta.title }),
       confidence: 0.7,
       source: "observation",
       source_cli: "harvest",
@@ -541,4 +549,248 @@ export function approveAll(): number {
 
   console.log(`\n✅ Approved all ${count} pending experience(s).\n`);
   return count;
+}
+
+// --- Auto Review (LLM second-pass quality filter) ---
+
+const REVIEW_PROMPT = `You are reviewing harvested work experiences for quality. For each experience, decide:
+- "approve": Useful lesson, debugging insight, correction, architectural decision, team convention
+- "reject": API documentation, code description, too generic/obvious, duplicate of another experience listed
+- "uncertain": Not sure — needs human review
+
+Output one JSON object per line: {"id": N, "verdict": "approve"|"reject"|"uncertain", "reason": "brief reason"}
+
+Existing experiences (for dedup):
+`;
+
+export function autoReview(opts: { brainCli?: string; dryRun?: boolean } = {}): {
+  approved: number; rejected: number; uncertain: number;
+} {
+  const brainCli = opts.brainCli || "claude";
+  const pending = listPending();
+
+  if (pending.length === 0) {
+    console.log("No pending experiences to review.");
+    return { approved: 0, rejected: 0, uncertain: 0 };
+  }
+
+  console.log(`\n🔍 Auto-reviewing ${pending.length} pending experience(s)...\n`);
+
+  // Get existing experiences for dedup (only tags overlap)
+  const existing = listAllExperiences();
+  let approved = 0, rejected = 0, uncertain = 0;
+
+  const BATCH = 15;
+  const pendingDir = getPendingDir();
+
+  for (let i = 0; i < pending.length; i += BATCH) {
+    const batch = pending.slice(i, i + BATCH);
+    const batchNum = Math.floor(i / BATCH) + 1;
+    const totalBatches = Math.ceil(pending.length / BATCH);
+    console.log(`[${batchNum}/${totalBatches}] Reviewing ${batch.length} experiences...`);
+
+    // Find related existing experiences (same tags) for dedup
+    const batchTags = new Set(batch.flatMap(p => {
+      try { return JSON.parse(p.meta.tags || "[]"); }
+      catch { return p.meta.tags?.replace(/[\[\]"]/g, "").split(",").map((t: string) => t.trim()).filter(Boolean) || []; }
+    }));
+    const relatedExisting = existing
+      .filter(e => e.meta.tags.some(t => batchTags.has(t)))
+      .slice(0, 20)
+      .map(e => e.content.slice(0, 100));
+
+    const existingSection = relatedExisting.length > 0
+      ? relatedExisting.map((c, idx) => `E${idx + 1}. ${c}`).join("\n")
+      : "(none)";
+
+    const pendingSection = batch.map((p, idx) =>
+      `${idx + 1}. ${p.content.slice(0, 150)}`
+    ).join("\n");
+
+    const prompt = REVIEW_PROMPT + existingSection + "\n\nPending experiences to review:\n" + pendingSection;
+
+    try {
+      let output: string;
+      if (brainCli === "claude") {
+        output = execFileSync("claude", ["-p", "--bare"], {
+          encoding: "utf-8",
+          timeout: 180_000,
+          input: prompt,
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: 1024 * 1024,
+        }).trim();
+      } else {
+        output = execFileSync(brainCli, ["-p"], {
+          encoding: "utf-8",
+          timeout: 180_000,
+          input: prompt,
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: 1024 * 1024,
+        }).trim();
+      }
+
+      const verdicts = new Map<number, { verdict: string; reason: string }>();
+      for (const line of output.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) continue;
+        try {
+          const obj = JSON.parse(trimmed);
+          if (obj.id && obj.verdict) {
+            verdicts.set(Number(obj.id), { verdict: obj.verdict, reason: obj.reason || "" });
+          }
+        } catch { /* skip */ }
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      for (let idx = 0; idx < batch.length; idx++) {
+        const p = batch[idx];
+        const v = verdicts.get(idx + 1);
+        const verdict = v?.verdict || "uncertain";
+        const reason = v?.reason || "no LLM response";
+
+        if (verdict === "approve" && !opts.dryRun) {
+          // Write to experience store
+          let tags: string[];
+          try { tags = JSON.parse(p.meta.tags || "[]"); }
+          catch { tags = p.meta.tags?.replace(/[\[\]"]/g, "").split(",").map((t: string) => t.trim()).filter(Boolean) || []; }
+
+          const meta: ExperienceFrontmatter = {
+            scope: (p.meta.scope as ExperienceFrontmatter["scope"]) || "universal",
+            sensitivity: "internal",
+            category: (p.meta.category as ExperienceFrontmatter["category"]) || "knowledge",
+            tags,
+            ...(p.meta.title && { title: p.meta.title }),
+            confidence: 0.7,
+            source: "observation",
+            source_cli: "harvest",
+            created: date,
+            updated: date,
+            used: 0,
+          };
+          writeExperience(meta, p.content);
+          fs.unlinkSync(path.join(pendingDir, p.file));
+          approved++;
+        } else if (verdict === "reject" && !opts.dryRun) {
+          fs.unlinkSync(path.join(pendingDir, p.file));
+          rejected++;
+        } else if (verdict === "uncertain") {
+          uncertain++;
+        } else if (opts.dryRun) {
+          if (verdict === "approve") approved++;
+          else if (verdict === "reject") rejected++;
+          else uncertain++;
+        }
+
+        const icon = verdict === "approve" ? "✅" : verdict === "reject" ? "❌" : "❓";
+        console.log(`  ${icon} ${verdict}: ${p.content.slice(0, 60)}... ${reason ? `(${reason})` : ""}`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`  ⚠️ LLM failed: ${msg.slice(0, 80)}`);
+      uncertain += batch.length;
+    }
+  }
+
+  console.log(`\nResults: ✅ ${approved} approved, ❌ ${rejected} rejected, ❓ ${uncertain} uncertain`);
+  if (opts.dryRun) {
+    console.log("🔍 Dry run — no changes made. Run without --dry-run to apply.\n");
+  } else if (uncertain > 0) {
+    console.log(`Run 'skillseed harvest --review' to handle ${uncertain} uncertain experience(s).\n`);
+  }
+
+  return { approved, rejected, uncertain };
+}
+
+const TITLE_PROMPT = `Generate a short title (max 50 chars) for each experience below. Output one JSON object per line with "id" and "title" fields.
+
+Experiences:
+`;
+
+export function backfillTitles(opts: { dryRun?: boolean; brainCli?: string } = {}): { total: number; updated: number } {
+  const brainCli = opts.brainCli || "claude";
+  const all = listAllExperiences();
+  const needTitle = all.filter(e => !e.meta.title);
+
+  if (needTitle.length === 0) {
+    console.log("All experiences already have titles.");
+    return { total: all.length, updated: 0 };
+  }
+
+  console.log(`Found ${needTitle.length}/${all.length} experiences without titles.\n`);
+
+  let updated = 0;
+  const BATCH = 15;
+
+  for (let i = 0; i < needTitle.length; i += BATCH) {
+    const batch = needTitle.slice(i, i + BATCH);
+    const batchNum = Math.floor(i / BATCH) + 1;
+    const totalBatches = Math.ceil(needTitle.length / BATCH);
+    console.log(`[${batchNum}/${totalBatches}] Generating titles for ${batch.length} experiences...`);
+
+    const expLines = batch.map((e, idx) =>
+      `${idx + 1}. [${e.id}] ${e.content.slice(0, 150)}`
+    ).join("\n");
+
+    const prompt = TITLE_PROMPT + expLines;
+
+    try {
+      let output: string;
+      if (brainCli === "claude") {
+        output = execFileSync("claude", ["-p", "--bare"], {
+          encoding: "utf-8",
+          timeout: 180_000,
+          input: prompt,
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: 1024 * 1024,
+        }).trim();
+      } else {
+        output = execFileSync(brainCli, ["-p"], {
+          encoding: "utf-8",
+          timeout: 180_000,
+          input: prompt,
+          stdio: ["pipe", "pipe", "pipe"],
+          maxBuffer: 1024 * 1024,
+        }).trim();
+      }
+
+      // Parse results
+      const titles = new Map<number, string>();
+      for (const line of output.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) continue;
+        try {
+          const obj = JSON.parse(trimmed);
+          if (obj.id !== undefined && obj.title) {
+            titles.set(Number(obj.id), obj.title.slice(0, 50));
+          }
+        } catch { /* skip */ }
+      }
+
+      for (let idx = 0; idx < batch.length; idx++) {
+        const title = titles.get(idx + 1);
+        if (!title) continue;
+
+        const exp = batch[idx];
+        if (opts.dryRun) {
+          console.log(`  ${exp.id}: "${title}"`);
+        } else {
+          const raw = fs.readFileSync(exp.filePath, "utf-8");
+          const parsed = matter(raw);
+          parsed.data.title = title;
+          fs.writeFileSync(exp.filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
+        }
+        updated++;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`  ⚠️ LLM failed: ${msg.slice(0, 80)}`);
+    }
+  }
+
+  if (opts.dryRun) {
+    console.log(`\n🔍 Dry run: would update ${updated} titles. Run without --dry-run to apply.`);
+  } else {
+    console.log(`\n✅ Updated ${updated} titles.`);
+  }
+  return { total: all.length, updated };
 }

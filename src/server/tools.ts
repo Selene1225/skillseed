@@ -62,10 +62,10 @@ export function registerTools(server: McpServer): void {
       const HIGH_SCORE = 80;
       const lines = result.results.map((r, i) => {
         const prefix = `${i + 1}.`;
-        // High-score: full content; low-score: summary with ID for drill-down
+        // High-score: full content; low-score: title-based summary
         return r.score >= HIGH_SCORE
           ? `${prefix} ${r.content}`
-          : `${prefix} [${r.id}] ${r.summary}`;
+          : `${prefix} ${r.summary}`;
       });
       const text = `Found ${result.total} experience(s):\n${lines.join("\n")}`;
       return { content: [{ type: "text" as const, text }] };

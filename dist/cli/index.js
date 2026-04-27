@@ -7,7 +7,7 @@ import path from "node:path";
 import { serveStdio, serveHttp } from "../server/mcp.js";
 import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, configureCopilotCli, configureCodex, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
-import { harvest, reviewPending, approveAll, discoverHistoryFiles } from "./harvest.js";
+import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles } from "./harvest.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -67,9 +67,11 @@ Commands:
               --audit       Dry-run: show what would be pushed
   harvest   Extract experiences from CLI conversation history
               --review      Interactively approve/reject pending experiences
+              --auto-review LLM auto-review pending (add --dry-run to preview)
               --approve-all Approve all pending experiences
               --dry-run     Preview without writing
               --scan        Show available history files
+              --backfill-titles  Generate titles for existing experiences (add --dry-run to preview)
 
 Options:
   -v, --version   Show version
@@ -192,11 +194,26 @@ function runList() {
 }
 async function runHarvest() {
     const arg = process.argv[3];
+    const configPath = path.join(getSkillseedDir(), "config.json");
+    let brainCli = "claude";
+    try {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        brainCli = config.brain_cli || "claude";
+    }
+    catch { /* use default */ }
     if (arg === "--review") {
         await reviewPending();
     }
     else if (arg === "--approve-all") {
         approveAll();
+    }
+    else if (arg === "--auto-review") {
+        const dryRun = process.argv[4] === "--dry-run";
+        autoReview({ brainCli, dryRun });
+    }
+    else if (arg === "--backfill-titles") {
+        const dryRun = process.argv[4] === "--dry-run";
+        backfillTitles({ brainCli, dryRun });
     }
     else if (arg === "--scan") {
         const files = discoverHistoryFiles();
@@ -209,14 +226,12 @@ async function runHarvest() {
         console.log();
     }
     else {
-        const configPath = path.join(getSkillseedDir(), "config.json");
-        let brainCli = "claude";
-        try {
-            const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-            brainCli = config.brain_cli || "claude";
+        const result = harvest({ brainCli, dryRun: arg === "--dry-run" });
+        // Auto-review pending if not dry run and there are pending experiences
+        if (!arg && result.pending > 0) {
+            console.log("🔍 Running auto-review on pending experiences...\n");
+            autoReview({ brainCli, dryRun: true }); // first time always dry-run
         }
-        catch { /* use default */ }
-        harvest({ brainCli, dryRun: arg === "--dry-run" });
     }
 }
 async function runSync() {

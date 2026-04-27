@@ -191,8 +191,8 @@ export function search(opts) {
 export function formatSummary(exp) {
     const scopeTag = `[${exp.meta.scope}${exp.meta.company ? ":" + exp.meta.company : ""}]`;
     const tags = exp.meta.tags.length > 0 ? ` [${exp.meta.tags.join(",")}]` : "";
-    const firstLine = exp.content.split("\n")[0].slice(0, 120);
-    return `${scopeTag}${tags} ${firstLine}`;
+    const title = exp.meta.title || exp.content.split("\n")[0].slice(0, 120);
+    return `${scopeTag}${tags} ${title}`;
 }
 /** Format experience as full detail */
 export function formatDetail(exp) {
