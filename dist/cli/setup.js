@@ -14,7 +14,7 @@ export function detectClis() {
     const clis = [
         { name: "claude", cmd: "claude", versionArg: "--version" },
         { name: "gemini", cmd: "gemini", versionArg: "--version" },
-        { name: "copilot", cmd: "gh", versionArg: "--version" },
+        { name: "copilot", cmd: "gh", versionArg: "copilot --version" },
     ];
     for (const cli of clis) {
         try {

@@ -201,6 +201,7 @@ export function search(opts: SearchOptions): SearchResult[] {
 
     // Boost by usage and recency (only if already matched by query/tags)
     if (score > 0) {
+      if (exp.meta.category === "correction") score *= 1.5;
       score += Math.min(exp.meta.used, 10);
       score += exp.meta.confidence * 5;
       scored.push({ experience: exp, score });
