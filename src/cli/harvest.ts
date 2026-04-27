@@ -364,9 +364,10 @@ export interface HarvestOptions {
 export function harvest(opts: HarvestOptions = {}): { scanned: number; extracted: number; pending: number } {
   const brainCli = opts.brainCli || "claude";
   const minScore = opts.minScore ?? 20;
-  const maxFiles = opts.maxFiles ?? 50;
+  const maxFiles = opts.maxFiles ?? 0; // 0 = no limit
 
-  const files = discoverHistoryFiles().slice(0, maxFiles);
+  const allFiles = discoverHistoryFiles();
+  const files = maxFiles > 0 ? allFiles.slice(0, maxFiles) : allFiles;
   const state = getHarvestState();
   const existingContent = listAllExperiences().map(e => e.content);
 
@@ -397,8 +398,11 @@ export function harvest(opts: HarvestOptions = {}): { scanned: number; extracted
 
     console.log(`${highScoreChunks.length} chunk(s) to analyze`);
 
-    for (const chunk of highScoreChunks) {
+    for (let ci = 0; ci < highScoreChunks.length; ci++) {
+      const chunk = highScoreChunks[ci];
+      process.stdout.write(`     [${ci + 1}/${highScoreChunks.length}] extracting... `);
       const experiences = extractWithLlm(chunk, brainCli);
+      let chunkNew = 0;
       for (const exp of experiences) {
         if (isDuplicate(exp.content, existingContent)) {
           continue;
@@ -410,14 +414,13 @@ export function harvest(opts: HarvestOptions = {}): { scanned: number; extracted
           existingContent.push(exp.content); // prevent dups within batch
         }
         extracted++;
+        chunkNew++;
       }
+      if (!opts.dryRun) console.log(`${chunkNew} experience(s)`);
     }
 
     state[f.file] = f.mtime;
-  }
-
-  if (!opts.dryRun) {
-    saveHarvestState(state);
+    if (!opts.dryRun) saveHarvestState(state); // save after each file — Ctrl+C safe
   }
 
   const pendingCount = listPending().length;
