@@ -22,6 +22,7 @@ import {
   setTransport,
 } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
+import { harvest, reviewPending, approveAll, discoverHistoryFiles } from "./harvest.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 
 import { createRequire } from "node:module";
@@ -49,6 +50,9 @@ async function main(): Promise<void> {
       break;
     case "sync":
       await runSync();
+      break;
+    case "harvest":
+      await runHarvest();
       break;
     case "--version":
     case "-v":
@@ -80,6 +84,11 @@ Commands:
               --setup URL   Configure remote manually
               --status      Show sync state
               --audit       Dry-run: show what would be pushed
+  harvest   Extract experiences from CLI conversation history
+              --review      Interactively approve/reject pending experiences
+              --approve-all Approve all pending experiences
+              --dry-run     Preview without writing
+              --scan        Show available history files
 
 Options:
   -v, --version   Show version
@@ -219,6 +228,31 @@ function runList(): void {
     console.log(`  [${exp.meta.scope}] ${firstLine}`);
     console.log(`    tags: ${exp.meta.tags.join(", ")} | confidence: ${exp.meta.confidence} | ${exp.meta.created}`);
     console.log();
+  }
+}
+
+async function runHarvest(): Promise<void> {
+  const arg = process.argv[3];
+  if (arg === "--review") {
+    await reviewPending();
+  } else if (arg === "--approve-all") {
+    approveAll();
+  } else if (arg === "--scan") {
+    const files = discoverHistoryFiles();
+    console.log(`\n📂 ${files.length} conversation history files:\n`);
+    for (const f of files.slice(0, 20)) {
+      console.log(`  ${f.project}/${path.basename(f.file).slice(0, 8)}...  ${(f.size / 1024).toFixed(0)} KB`);
+    }
+    if (files.length > 20) console.log(`  ... and ${files.length - 20} more`);
+    console.log();
+  } else {
+    const configPath = path.join(getSkillseedDir(), "config.json");
+    let brainCli = "claude";
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      brainCli = config.brain_cli || "claude";
+    } catch { /* use default */ }
+    harvest({ brainCli, dryRun: arg === "--dry-run" });
   }
 }
 
