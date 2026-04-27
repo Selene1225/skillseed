@@ -155,6 +155,7 @@ You have access to the user's work experience library via Skillseed MCP tools.
 **When to call seed_log:**
 - When the user corrects you (always log corrections with category: correction)
 - When a debugging session reveals a non-obvious solution
+- When the user describes project-specific processes, conventions, or architecture decisions
 - When the user explicitly asks to remember something
 - Do NOT log trivial or well-known facts
 

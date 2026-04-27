@@ -8,7 +8,7 @@ import { recall } from "../service/recall.js";
 import { preferenceGet, preferenceSet } from "../service/preference.js";
 export function registerTools(server) {
     // seed_log — Record a work experience
-    server.tool("seed_log", "Record a work experience or lesson learned. Call when: (1) user corrects you, (2) a non-obvious solution is found after debugging, (3) user explicitly asks to remember something. Do NOT call for trivial facts or well-known information.", {
+    server.tool("seed_log", "Record a work experience or lesson learned. Call when: (1) user corrects you, (2) a non-obvious solution is found after debugging, (3) user describes project-specific processes or conventions, (4) user explicitly asks to remember something. Do NOT call for trivial facts or well-known information.", {
         content: z.string().describe("The experience content in natural language"),
         scope: z.enum(["universal", "domain", "company", "team", "project", "personal"]).optional()
             .describe("Scope level (auto-inferred if not provided)"),
