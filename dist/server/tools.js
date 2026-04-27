@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 import { logExperience } from "../service/experience.js";
-import { recall } from "../service/recall.js";
+import { recall, recallDetail } from "../service/recall.js";
 import { preferenceGet, preferenceSet } from "../service/preference.js";
 export function registerTools(server) {
     // seed_log — Record a work experience
@@ -35,12 +35,26 @@ export function registerTools(server) {
         tags: z.array(z.string()).optional(),
         limit: z.number().optional().describe("Max results (default: 5)"),
         maxTokens: z.number().optional().describe("Token budget (default: 1500)"),
+        detail: z.string().optional().describe("Experience ID to get full text instead of search"),
     }, async (params) => {
+        if (params.detail) {
+            const d = await recallDetail(params.detail);
+            if (!d)
+                return { content: [{ type: "text", text: `Experience "${params.detail}" not found.` }] };
+            return { content: [{ type: "text", text: d.fullText }] };
+        }
         const result = recall(params);
         if (result.hint) {
             return { content: [{ type: "text", text: result.hint }] };
         }
-        const lines = result.results.map((r, i) => `${i + 1}. ${r.summary}`);
+        const HIGH_SCORE = 80;
+        const lines = result.results.map((r, i) => {
+            const prefix = `${i + 1}.`;
+            // High-score: full content; low-score: summary with ID for drill-down
+            return r.score >= HIGH_SCORE
+                ? `${prefix} ${r.content}`
+                : `${prefix} [${r.id}] ${r.summary}`;
+        });
         const text = `Found ${result.total} experience(s):\n${lines.join("\n")}`;
         return { content: [{ type: "text", text }] };
     });

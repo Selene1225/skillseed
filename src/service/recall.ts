@@ -17,6 +17,7 @@ export interface RecallResult {
   results: Array<{
     id: string;
     summary: string;
+    content: string;
     score: number;
   }>;
   total: number;
@@ -55,6 +56,7 @@ export function recall(input: RecallInput): RecallResult {
     results: relevant.map(r => ({
       id: r.experience.id,
       summary: formatSummary(r.experience),
+      content: r.experience.content,
       score: r.score,
     })),
     total: relevant.length,

@@ -25,6 +25,7 @@ export function recall(input) {
         results: relevant.map(r => ({
             id: r.experience.id,
             summary: formatSummary(r.experience),
+            content: r.experience.content,
             score: r.score,
         })),
         total: relevant.length,

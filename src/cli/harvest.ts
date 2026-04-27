@@ -174,10 +174,13 @@ For each experience, output a JSON object on its own line with these fields:
 - scope: one of "universal", "project", "company", "personal"
 
 Rules:
-- Only extract NON-TRIVIAL, reusable insights
+- Only extract NON-TRIVIAL, reusable insights that would help someone in the future
+- Extract LESSONS and PRINCIPLES, not API documentation or code descriptions
+- BAD: "Function X returns Y events" (this is API docs, not experience)
+- GOOD: "Streaming APIs should expose typed events so consumers can filter by type" (this is a reusable lesson)
 - Skip general knowledge anyone would know
-- Skip tool usage instructions that are in documentation
-- Focus on: mistakes made, corrections, workarounds, team conventions, debugging lessons
+- Skip descriptions of how specific code/APIs work — that belongs in code comments
+- Focus on: mistakes made, corrections, workarounds, team conventions, debugging lessons, architectural decisions and WHY they were made
 - Output ONLY JSON lines, no other text. If nothing worth extracting, output nothing.
 
 Conversation:

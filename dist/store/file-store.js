@@ -6,6 +6,21 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import matter from "gray-matter";
+const STOP_WORDS = new Set([
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "must", "can", "could", "am", "it", "its",
+    "this", "that", "these", "those", "i", "you", "he", "she", "we", "they",
+    "me", "him", "her", "us", "them", "my", "your", "his", "our", "their",
+    "what", "which", "who", "whom", "how", "when", "where", "why",
+    "and", "but", "or", "nor", "not", "no", "so", "if", "then", "else",
+    "for", "of", "to", "in", "on", "at", "by", "with", "from", "into",
+    "about", "as", "up", "out", "off", "over", "after", "before",
+    "all", "each", "every", "both", "few", "more", "most", "some", "any",
+    "just", "only", "very", "too", "also", "than", "now", "here", "there",
+    "的", "了", "在", "是", "和", "有", "我", "你", "他", "她", "它", "们",
+    "这", "那", "不", "也", "都", "就", "会", "要", "把", "被", "让", "给",
+]);
 export function getSkillseedDir() {
     return path.join(os.homedir(), ".skillseed");
 }
@@ -131,7 +146,7 @@ export function search(opts) {
         // Keyword matching (query against content + tags)
         if (opts.query) {
             const q = opts.query.toLowerCase();
-            const words = q.split(/\s+/).filter(Boolean);
+            const words = q.split(/\s+/).filter(Boolean).filter(w => w.length > 2 && !STOP_WORDS.has(w));
             for (const w of words) {
                 if (exp.content.toLowerCase().includes(w))
                     score += 10;
@@ -177,7 +192,7 @@ export function formatSummary(exp) {
     const scopeTag = `[${exp.meta.scope}${exp.meta.company ? ":" + exp.meta.company : ""}]`;
     const tags = exp.meta.tags.length > 0 ? ` [${exp.meta.tags.join(",")}]` : "";
     const firstLine = exp.content.split("\n")[0].slice(0, 120);
-    return `${scopeTag}${tags} ${firstLine} (confidence:${exp.meta.confidence} | used:${exp.meta.used} | ${exp.meta.created})`;
+    return `${scopeTag}${tags} ${firstLine}`;
 }
 /** Format experience as full detail */
 export function formatDetail(exp) {

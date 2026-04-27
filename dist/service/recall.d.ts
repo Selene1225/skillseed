@@ -13,6 +13,7 @@ export interface RecallResult {
     results: Array<{
         id: string;
         summary: string;
+        content: string;
         score: number;
     }>;
     total: number;
