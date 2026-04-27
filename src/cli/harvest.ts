@@ -701,7 +701,11 @@ export function autoReview(opts: { brainCli?: string; dryRun?: boolean } = {}): 
   return { approved, rejected, uncertain };
 }
 
-const TITLE_PROMPT = `Generate a short title (max 50 chars) for each experience below. Output one JSON object per line with "id" and "title" fields.
+const TITLE_PROMPT = `Generate a short title (max 50 chars) for each experience below. Output one JSON object per line with "num" (the line number) and "title" fields.
+
+Example output:
+{"num": 1, "title": "Graph API复用Bot凭据"}
+{"num": 2, "title": "Playwright overlay dialog fix"}
 
 Experiences:
 `;
@@ -728,7 +732,7 @@ export function backfillTitles(opts: { dryRun?: boolean; brainCli?: string } = {
     console.log(`[${batchNum}/${totalBatches}] Generating titles for ${batch.length} experiences...`);
 
     const expLines = batch.map((e, idx) =>
-      `${idx + 1}. [${e.id}] ${e.content.slice(0, 150)}`
+      `${idx + 1}. ${e.content.slice(0, 150)}`
     ).join("\n");
 
     const prompt = TITLE_PROMPT + expLines;
@@ -753,15 +757,15 @@ export function backfillTitles(opts: { dryRun?: boolean; brainCli?: string } = {
         }).trim();
       }
 
-      // Parse results
       const titles = new Map<number, string>();
       for (const line of output.split("\n")) {
         const trimmed = line.trim();
         if (!trimmed.startsWith("{")) continue;
         try {
           const obj = JSON.parse(trimmed);
-          if (obj.id !== undefined && obj.title) {
-            titles.set(Number(obj.id), obj.title.slice(0, 50));
+          const num = obj.num ?? obj.id;
+          if (num !== undefined && obj.title) {
+            titles.set(Number(num), obj.title.slice(0, 50));
           }
         } catch { /* skip */ }
       }
