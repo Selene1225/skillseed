@@ -89,6 +89,15 @@ function scopeToDir(meta) {
         default: return "universal";
     }
 }
+export function moveExperienceScope(filePath, newMeta) {
+    const newDir = path.join(getExperiencesDir(), scopeToDir(newMeta));
+    fs.mkdirSync(newDir, { recursive: true });
+    const newPath = path.join(newDir, path.basename(filePath));
+    if (newPath !== filePath) {
+        fs.renameSync(filePath, newPath);
+    }
+    return newPath;
+}
 export function writeExperience(meta, content) {
     const dir = path.join(getExperiencesDir(), scopeToDir(meta));
     fs.mkdirSync(dir, { recursive: true });

@@ -41,6 +41,7 @@ export declare function sanitizeContent(text: string): string;
 export declare function getSkillseedDir(): string;
 export declare function getExperiencesDir(): string;
 export declare function getSkillsDir(): string;
+export declare function moveExperienceScope(filePath: string, newMeta: ExperienceFrontmatter): string;
 export declare function writeExperience(meta: ExperienceFrontmatter, content: string): Experience;
 export declare function readExperience(filePath: string): Experience | null;
 export declare function updateExperienceMeta(filePath: string, updates: Partial<ExperienceFrontmatter>): void;

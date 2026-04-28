@@ -9,7 +9,7 @@ import path from "node:path";
 import os from "node:os";
 import readline from "node:readline";
 import { execFileSync } from "node:child_process";
-import { getSkillseedDir, writeExperience, listAllExperiences, sanitizeContent, type ExperienceFrontmatter } from "../store/file-store.js";
+import { getSkillseedDir, writeExperience, listAllExperiences, sanitizeContent, moveExperienceScope, type ExperienceFrontmatter } from "../store/file-store.js";
 import matter from "gray-matter";
 
 // --- Types ---
@@ -63,6 +63,16 @@ const SKIP_PATTERNS = [
   /^ping$/i,
   /^(?:hi|hello|hey|你好|test)\s*$/i,
   /^(?:yes|no|y|n|ok|好|是|对)\s*$/i,
+];
+
+// Pre-filter: discard test residue and garbage data before LLM extraction
+const GARBAGE_PATTERNS = [
+  /^Count test\b/i,
+  /^test\s+(?:alpha|beta|gamma|delta)\b/i,
+  /^test\s+\d{10,}/i, // test + timestamp
+  /^(?:foo|bar|baz|lorem ipsum)\b/i,
+  /^TODO:?\s*$/i,
+  /^placeholder/i,
 ];
 
 // --- JSONL Parsing ---
@@ -146,6 +156,10 @@ function isSkippable(text: string): boolean {
   return SKIP_PATTERNS.some(p => p.test(text.trim()));
 }
 
+function isGarbage(text: string): boolean {
+  return GARBAGE_PATTERNS.some(p => p.test(text.trim()));
+}
+
 // --- Chunking ---
 
 function chunkConversation(turns: ConversationTurn[], file: string, project: string): ConversationChunk[] {
@@ -170,19 +184,26 @@ function chunkConversation(turns: ConversationTurn[], file: string, project: str
 const EXTRACT_PROMPT = `You are analyzing a conversation excerpt to extract work experiences worth remembering.
 
 For each experience, output a JSON object on its own line with these fields:
-- title: short summary of the experience (max 50 chars, like a headline)
+- title: 中文标题（max 50 chars），仅技术专有名词保留英文。格式：[技术栈/模块] 现象与解决方案。例："[npm] Windows全局安装GitHub包失败的tgz方案"、"[Azure AD] 跨租户Graph API需admin consent"
 - content: one clear sentence describing the lesson, practice, or solution (max 200 chars)
 - category: one of "good_practice", "problem", "correction", "knowledge"
 - tags: array of 2-5 relevant topic tags (lowercase)
-- scope: one of "universal", "project", "company", "personal"
+- scope: one of "universal", "domain", "project", "company", "personal" — see strict rules below
+
+Scope classification (STRICT):
+- "universal": ONLY generic software engineering principles with NO specific framework/language/tool. Examples: Git commit规范, PR review最佳实践, 通用调试思路, 代码重构原则. If it mentions ANY specific tool (React, Python, Azure, npm, Playwright...), it is NOT universal.
+- "domain": Experiences about specific PUBLIC technologies, frameworks, or tools that anyone can use. Examples: Azure AD auth, React hooks, Python packaging, npm config, Playwright tricks, Microsoft Graph API.
+- "project": Experiences specific to OUR internal projects, repos, or business logic. Examples: Super-Agent-OS architecture, CTA bot design, OpenClaw conventions, skillseed development decisions.
+- "company": Internal team conventions, company-specific processes, toolchain choices, org-specific URLs/configs.
+- "personal": User preferences, habits, or personal traits.
 
 Rules:
 - Only extract NON-TRIVIAL, reusable insights that would help someone in the future
 - Extract LESSONS and PRINCIPLES, not API documentation or code descriptions
 - BAD: "Function X returns Y events" (this is API docs, not experience)
 - GOOD: "Streaming APIs should expose typed events so consumers can filter by type" (this is a reusable lesson)
-- title should be a concise label, e.g. "Graph API复用Bot凭据" or "Playwright overlay dialog fix"
 - Skip general knowledge anyone would know
+- Skip test data, placeholder text, or debug artifacts (e.g. "Count test xxx", "test alpha")
 - Skip descriptions of how specific code/APIs work — that belongs in code comments
 - Focus on: mistakes made, corrections, workarounds, team conventions, debugging lessons, architectural decisions and WHY they were made
 - Output ONLY JSON lines, no other text. If nothing worth extracting, output nothing.
@@ -192,6 +213,7 @@ Conversation:
 
 function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExperience[] {
   const conversationText = chunk.turns
+    .filter(t => !isGarbage(t.text)) // pre-filter garbage
     .map(t => `[${t.type}]: ${t.text.slice(0, 1000)}`) // cap per-turn length
     .join("\n\n");
 
@@ -232,6 +254,8 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
       try {
         const obj = JSON.parse(trimmed);
         if (obj.content && obj.category) {
+          // Post-filter: skip garbage that slipped through
+          if (isGarbage(obj.content) || (obj.content.length < 15 && !obj.tags?.length)) continue;
           results.push({
             title: obj.title || undefined,
             content: obj.content,
@@ -255,13 +279,56 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
   return results;
 }
 
+// --- Semantic Dedup ---
+
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ").split(/\s+/).filter(w => w.length > 1)
+  );
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  let intersection = 0;
+  for (const w of a) if (b.has(w)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function isDuplicateExperience(newContent: string, newTags: string[]): { duplicate: boolean; similarId?: string } {
+  const existing = listAllExperiences();
+  const newTokens = tokenize(newContent);
+  const newTagSet = new Set(newTags);
+
+  for (const e of existing) {
+    // Tag overlap check
+    const existingTagSet = new Set(e.meta.tags || []);
+    let tagOverlap = 0;
+    for (const t of newTagSet) if (existingTagSet.has(t)) tagOverlap++;
+    const tagSim = newTagSet.size === 0 ? 0 : tagOverlap / Math.max(newTagSet.size, existingTagSet.size);
+
+    // Text similarity
+    const existingTokens = tokenize(e.content);
+    const textSim = jaccardSimilarity(newTokens, existingTokens);
+
+    // Combined: high text similarity + tag overlap = duplicate
+    if (textSim > 0.6 || (textSim > 0.4 && tagSim > 0.5)) {
+      return { duplicate: true, similarId: e.id };
+    }
+  }
+  return { duplicate: false };
+}
+
 // --- Pending Storage ---
 
 function getPendingDir(): string {
   return path.join(getSkillseedDir(), "pending");
 }
 
-function writePending(exp: PendingExperience): string {
+function writePending(exp: PendingExperience): string | null {
+  // Semantic dedup: skip if too similar to existing experience
+  const { duplicate, similarId } = isDuplicateExperience(exp.content, exp.tags);
+  if (duplicate) return null; // caller handles skip count
+
   const dir = getPendingDir();
   fs.mkdirSync(dir, { recursive: true });
 
@@ -424,8 +491,9 @@ export function harvest(opts: HarvestOptions = {}): { scanned: number; extracted
         if (opts.dryRun) {
           console.log(`   [dry-run] Would extract: ${exp.content.slice(0, 80)}`);
         } else {
-          writePending(exp);
-          existingContent.push(exp.content); // prevent dups within batch
+          const written = writePending(exp);
+          if (!written) continue; // semantic dedup skipped
+          existingContent.push(exp.content);
         }
         extracted++;
         chunkNew++;
@@ -703,9 +771,12 @@ export function autoReview(opts: { brainCli?: string; dryRun?: boolean } = {}): 
 
 const TITLE_PROMPT = `Generate a short title (max 50 chars) for each experience below. Output one JSON object per line with "num" (the line number) and "title" fields.
 
+Title rules: 中文为主，仅技术专有名词保留英文。格式：[技术栈/模块] 现象与方案。
+
 Example output:
-{"num": 1, "title": "Graph API复用Bot凭据"}
-{"num": 2, "title": "Playwright overlay dialog fix"}
+{"num": 1, "title": "[Graph API] 复用Bot凭据获取Token"}
+{"num": 2, "title": "[Playwright] overlay弹窗阻塞点击的处理"}
+{"num": 3, "title": "[Git] commit message规范与模板配置"}
 
 Experiences:
 `;
@@ -880,4 +951,96 @@ export function sanitizeAll(opts: { dryRun?: boolean } = {}): { scanned: number;
     console.log(`\n✅ Sanitized ${updated} / ${all.length} experiences.`);
   }
   return { scanned: all.length, updated };
+}
+
+const RECLASSIFY_PROMPT = `Reclassify the scope of each experience below. Output one JSON object per line with "num" and "scope" fields.
+
+Scope rules (STRICT):
+- "universal": ONLY generic engineering principles with NO specific tool/framework/language. Example: "Git commit规范", "代码review原则"
+- "domain": About specific PUBLIC technologies anyone can use. Example: "Azure AD", "React hooks", "npm", "Playwright", "Python"
+- "project": About OUR internal projects/repos. Example: "Super-Agent-OS", "CTA bot", "OpenClaw", "skillseed"
+- "company": Internal team/org processes, company-specific configs
+- "personal": User preferences or personal traits
+
+If the current scope is already correct, still output it. Output ALL items.
+
+Experiences:
+`;
+
+export function reclassify(opts: { dryRun?: boolean; brainCli?: string } = {}): { total: number; updated: number } {
+  const brainCli = opts.brainCli || "claude";
+  const all = listAllExperiences();
+  const BATCH = 15;
+  let updated = 0;
+
+  console.log(`Reclassifying ${all.length} experiences...\n`);
+
+  for (let i = 0; i < all.length; i += BATCH) {
+    const batch = all.slice(i, i + BATCH);
+    const batchNum = Math.floor(i / BATCH) + 1;
+    const totalBatches = Math.ceil(all.length / BATCH);
+    console.log(`[${batchNum}/${totalBatches}] Reclassifying ${batch.length} experiences...`);
+
+    const expLines = batch.map((e, idx) =>
+      `${idx + 1}. [current: ${e.meta.scope}] ${e.content.slice(0, 150)}`
+    ).join("\n");
+
+    const prompt = RECLASSIFY_PROMPT + expLines;
+
+    try {
+      let output: string;
+      if (brainCli === "claude") {
+        output = execFileSync("claude", ["-p", "--bare"], {
+          encoding: "utf-8", timeout: 120_000, input: prompt,
+          stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+        }).trim();
+      } else {
+        output = execFileSync(brainCli, ["-p"], {
+          encoding: "utf-8", timeout: 120_000, input: prompt,
+          stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+        }).trim();
+      }
+
+      const scopes = new Map<number, string>();
+      for (const line of output.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) continue;
+        try {
+          const obj = JSON.parse(trimmed);
+          const num = obj.num ?? obj.id;
+          if (num !== undefined && obj.scope) {
+            scopes.set(Number(num), obj.scope);
+          }
+        } catch { /* skip */ }
+      }
+
+      for (let idx = 0; idx < batch.length; idx++) {
+        const newScope = scopes.get(idx + 1);
+        if (!newScope || newScope === batch[idx].meta.scope) continue;
+
+        updated++;
+        if (opts.dryRun) {
+          console.log(`  ${batch[idx].id}: ${batch[idx].meta.scope} → ${newScope}`);
+        } else {
+          const raw = fs.readFileSync(batch[idx].filePath, "utf-8");
+          const parsed = matter(raw);
+          parsed.data.scope = newScope;
+          fs.writeFileSync(batch[idx].filePath, matter.stringify(parsed.content, parsed.data), "utf-8");
+          // Move file to correct scope directory
+          moveExperienceScope(batch[idx].filePath, parsed.data as ExperienceFrontmatter);
+          console.log(`  ✅ ${batch[idx].id}: ${batch[idx].meta.scope} → ${newScope}`);
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`  ⚠️ LLM failed: ${msg.slice(0, 80)}`);
+    }
+  }
+
+  if (opts.dryRun) {
+    console.log(`\n🔍 Dry run: would reclassify ${updated} / ${all.length} experiences.`);
+  } else {
+    console.log(`\n✅ Reclassified ${updated} / ${all.length} experiences.`);
+  }
+  return { total: all.length, updated };
 }

@@ -139,6 +139,16 @@ function scopeToDir(meta: ExperienceFrontmatter): string {
   }
 }
 
+export function moveExperienceScope(filePath: string, newMeta: ExperienceFrontmatter): string {
+  const newDir = path.join(getExperiencesDir(), scopeToDir(newMeta));
+  fs.mkdirSync(newDir, { recursive: true });
+  const newPath = path.join(newDir, path.basename(filePath));
+  if (newPath !== filePath) {
+    fs.renameSync(filePath, newPath);
+  }
+  return newPath;
+}
+
 export function writeExperience(meta: ExperienceFrontmatter, content: string): Experience {
   const dir = path.join(getExperiencesDir(), scopeToDir(meta));
   fs.mkdirSync(dir, { recursive: true });

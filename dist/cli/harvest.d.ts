@@ -44,4 +44,11 @@ export declare function sanitizeAll(opts?: {
     scanned: number;
     updated: number;
 };
+export declare function reclassify(opts?: {
+    dryRun?: boolean;
+    brainCli?: string;
+}): {
+    total: number;
+    updated: number;
+};
 //# sourceMappingURL=harvest.d.ts.map
