@@ -22,7 +22,7 @@ import {
   setTransport,
 } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
-import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles } from "./harvest.js";
+import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences } from "./harvest.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 
 import { createRequire } from "node:module";
@@ -91,6 +91,7 @@ Commands:
               --dry-run     Preview without writing
               --scan        Show available history files
               --backfill-titles  Generate titles for existing experiences (add --dry-run to preview)
+              --export[=FILE]    Export all experiences to markdown (default: skillseed-export.md)
 
 Options:
   -v, --version   Show version
@@ -252,6 +253,11 @@ async function runHarvest(): Promise<void> {
   } else if (arg === "--backfill-titles") {
     const dryRun = process.argv[4] === "--dry-run";
     backfillTitles({ brainCli, dryRun });
+  } else if (arg?.startsWith("--export")) {
+    // --export or --export=path
+    const eqIdx = arg.indexOf("=");
+    const outPath = eqIdx > 0 ? arg.slice(eqIdx + 1) : "skillseed-export.md";
+    exportExperiences(outPath);
   } else if (arg === "--scan") {
     const files = discoverHistoryFiles();
     console.log(`\n📂 ${files.length} conversation history files:\n`);

@@ -37,4 +37,5 @@ export declare function backfillTitles(opts?: {
     total: number;
     updated: number;
 };
+export declare function exportExperiences(outPath: string): void;
 //# sourceMappingURL=harvest.d.ts.map

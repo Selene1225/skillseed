@@ -798,3 +798,50 @@ export function backfillTitles(opts: { dryRun?: boolean; brainCli?: string } = {
   }
   return { total: all.length, updated };
 }
+
+export function exportExperiences(outPath: string): void {
+  const all = listAllExperiences();
+  if (all.length === 0) {
+    console.log("No experiences to export.");
+    return;
+  }
+
+  const groups: Record<string, typeof all> = {};
+  for (const e of all) {
+    const scope = e.meta.scope || "unknown";
+    (groups[scope] ??= []).push(e);
+  }
+
+  const lines: string[] = [
+    "# Skillseed Experiences Export",
+    "",
+    `Total: ${all.length} experiences`,
+    "",
+  ];
+
+  for (const scope of Object.keys(groups).sort()) {
+    const exps = groups[scope];
+    lines.push(`## ${scope} (${exps.length})`, "");
+    for (const e of exps) {
+      const title = e.meta.title || e.content.split("\n")[0].slice(0, 80);
+      const tags = (e.meta.tags || []).join(", ");
+      const cat = e.meta.category || "";
+      lines.push(
+        `### ${title}`,
+        "",
+        `- **Category:** ${cat}${tags ? ` | **Tags:** ${tags}` : ""}`,
+        `- **Created:** ${e.meta.created || ""} | **Sensitivity:** ${e.meta.sensitivity || ""}`,
+        "",
+        e.content,
+        "",
+        "---",
+        "",
+      );
+    }
+  }
+
+  const resolved = path.resolve(outPath);
+  fs.writeFileSync(resolved, lines.join("\n"), "utf-8");
+  const sizeKB = (fs.statSync(resolved).size / 1024).toFixed(1);
+  console.log(`✅ Exported ${all.length} experiences to ${resolved} (${sizeKB} KB)`);
+}
