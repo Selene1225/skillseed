@@ -9,7 +9,7 @@ import path from "node:path";
 import os from "node:os";
 import readline from "node:readline";
 import { execFileSync } from "node:child_process";
-import { getSkillseedDir, writeExperience, listAllExperiences, type ExperienceFrontmatter } from "../store/file-store.js";
+import { getSkillseedDir, writeExperience, listAllExperiences, sanitizeContent, type ExperienceFrontmatter } from "../store/file-store.js";
 import matter from "gray-matter";
 
 // --- Types ---
@@ -844,4 +844,40 @@ export function exportExperiences(outPath: string): void {
   fs.writeFileSync(resolved, lines.join("\n"), "utf-8");
   const sizeKB = (fs.statSync(resolved).size / 1024).toFixed(1);
   console.log(`✅ Exported ${all.length} experiences to ${resolved} (${sizeKB} KB)`);
+}
+
+export function sanitizeAll(opts: { dryRun?: boolean } = {}): { scanned: number; updated: number } {
+  const all = listAllExperiences();
+  let updated = 0;
+
+  for (const e of all) {
+    const cleaned = sanitizeContent(e.content);
+    if (cleaned !== e.content) {
+      updated++;
+      if (opts.dryRun) {
+        console.log(`  🔍 ${e.id}`);
+        // Show diff: find changed parts
+        const lines = e.content.split("\n");
+        const cleanedLines = cleaned.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i] !== cleanedLines[i]) {
+            console.log(`     - ${lines[i].slice(0, 100)}`);
+            console.log(`     + ${cleanedLines[i].slice(0, 100)}`);
+          }
+        }
+      } else {
+        const raw = fs.readFileSync(e.filePath, "utf-8");
+        const parsed = matter(raw);
+        fs.writeFileSync(e.filePath, matter.stringify(cleaned, parsed.data), "utf-8");
+        console.log(`  ✅ ${e.id}`);
+      }
+    }
+  }
+
+  if (opts.dryRun) {
+    console.log(`\n🔍 Dry run: would sanitize ${updated} / ${all.length} experiences.`);
+  } else {
+    console.log(`\n✅ Sanitized ${updated} / ${all.length} experiences.`);
+  }
+  return { scanned: all.length, updated };
 }

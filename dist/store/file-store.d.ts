@@ -37,6 +37,7 @@ export interface SearchResult {
     experience: Experience;
     score: number;
 }
+export declare function sanitizeContent(text: string): string;
 export declare function getSkillseedDir(): string;
 export declare function getExperiencesDir(): string;
 export declare function getSkillsDir(): string;

@@ -47,6 +47,46 @@ export interface SearchResult {
   score: number;
 }
 
+// --- Secret sanitization ---
+// Patterns that match real secrets; replacements use {{placeholder}} tokens.
+// Users can extend via ~/.skillseed/sanitize.json
+const BUILTIN_SANITIZE_RULES: Array<{ pattern: RegExp; placeholder: string }> = [
+  // GUIDs that look like tenant/client/app IDs (in context of auth keywords)
+  { pattern: /(?<=(?:tenant|client|app)[\s_-]*(?:id)?[\s:=]*)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, placeholder: "{{tenant_or_app_id}}" },
+  // API keys / tokens / secrets (key=value patterns)
+  { pattern: /(?<=(?:api[_-]?key|secret|token|password|pwd|access[_-]?key)[\s:="']*)[A-Za-z0-9+\/_.~-]{20,}/gi, placeholder: "{{secret_value}}" },
+  // Bearer tokens
+  { pattern: /(?<=Bearer\s+)[A-Za-z0-9._~+\/=-]{20,}/gi, placeholder: "{{bearer_token}}" },
+  // Connection strings
+  { pattern: /(?<=(?:connection[_-]?string|conn[_-]?str)[\s:="']*)[^\s"']{30,}/gi, placeholder: "{{connection_string}}" },
+];
+
+let _sanitizeRules: Array<{ pattern: RegExp; placeholder: string }> | null = null;
+
+function getSanitizeRules(): Array<{ pattern: RegExp; placeholder: string }> {
+  if (_sanitizeRules) return _sanitizeRules;
+  _sanitizeRules = [...BUILTIN_SANITIZE_RULES];
+  // Load user-defined rules from ~/.skillseed/sanitize.json
+  const customPath = path.join(getSkillseedDir(), "sanitize.json");
+  if (fs.existsSync(customPath)) {
+    try {
+      const custom = JSON.parse(fs.readFileSync(customPath, "utf-8")) as Array<{ pattern: string; flags?: string; placeholder: string }>;
+      for (const r of custom) {
+        _sanitizeRules.push({ pattern: new RegExp(r.pattern, r.flags || "g"), placeholder: r.placeholder });
+      }
+    } catch { /* ignore bad config */ }
+  }
+  return _sanitizeRules;
+}
+
+export function sanitizeContent(text: string): string {
+  let result = text;
+  for (const rule of getSanitizeRules()) {
+    result = result.replace(rule.pattern, rule.placeholder);
+  }
+  return result;
+}
+
 const STOP_WORDS = new Set([
   "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
   "have", "has", "had", "do", "does", "did", "will", "would", "shall",
@@ -103,25 +143,24 @@ export function writeExperience(meta: ExperienceFrontmatter, content: string): E
   const dir = path.join(getExperiencesDir(), scopeToDir(meta));
   fs.mkdirSync(dir, { recursive: true });
 
-  // Dedup: skip if identical content already exists in this scope
-  const trimmed = content.trim();
-  if (isDuplicate(dir, trimmed)) {
-    // Return existing experience instead of creating duplicate
-    const existing = findByContent(dir, trimmed)!;
+  // Sanitize secrets before writing
+  const sanitized = sanitizeContent(content.trim());
+  if (isDuplicate(dir, sanitized)) {
+    const existing = findByContent(dir, sanitized)!;
     return existing;
   }
 
   const date = new Date().toISOString().slice(0, 10);
-  const slug = generateSlug(content);
+  const slug = generateSlug(sanitized);
   const rand = randomSuffix();
   const filename = `${date}-${slug}-${rand}.md`;
   const filePath = path.join(dir, filename);
 
-  const fileContent = matter.stringify(trimmed + "\n", meta);
+  const fileContent = matter.stringify(sanitized + "\n", meta);
   fs.writeFileSync(filePath, fileContent, "utf-8");
 
   const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
-  return { id, meta, content: trimmed, filePath };
+  return { id, meta, content: sanitized, filePath };
 }
 
 function isDuplicate(dir: string, content: string): boolean {

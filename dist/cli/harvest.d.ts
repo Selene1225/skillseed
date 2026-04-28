@@ -38,4 +38,10 @@ export declare function backfillTitles(opts?: {
     updated: number;
 };
 export declare function exportExperiences(outPath: string): void;
+export declare function sanitizeAll(opts?: {
+    dryRun?: boolean;
+}): {
+    scanned: number;
+    updated: number;
+};
 //# sourceMappingURL=harvest.d.ts.map
