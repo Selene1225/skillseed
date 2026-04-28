@@ -9,7 +9,7 @@ import path from "node:path";
 import os from "node:os";
 import readline from "node:readline";
 import { execFileSync } from "node:child_process";
-import { getSkillseedDir, writeExperience, listAllExperiences, sanitizeContent, moveExperienceScope, type ExperienceFrontmatter } from "../store/file-store.js";
+import { getSkillseedDir, writeExperience, listAllExperiences, sanitizeContent, moveExperienceScope, updateExperienceMeta, type ExperienceFrontmatter } from "../store/file-store.js";
 import matter from "gray-matter";
 
 // --- Types ---
@@ -84,6 +84,15 @@ const UNIVERSAL_BLOCKLIST = new Set([
   "powershell", "bash", "linux", "macos", "chrome", "firefox", "safari",
   "webpack", "vite", "eslint", "jest", "vitest", "pytest", "junit",
 ]);
+
+// High-frequency low-signal tags excluded from Union-Find graph edges
+const TAG_STOPWORDS = new Set([
+  "bug", "fix", "error", "issue", "problem", "solution", "workaround",
+  "debugging", "troubleshooting", "best-practice", "tip", "note",
+  "configuration", "setup", "config",
+]);
+
+// --- JSONL Parsing ---
 
 function parseJsonlFile(filePath: string): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
@@ -1128,6 +1137,22 @@ export function reclassify(opts: { dryRun?: boolean; brainCli?: string } = {}): 
 
 // --- Dedup existing experiences ---
 
+// Phase 0: Fix misclassified universal experiences before dedup
+function fixScopeBeforeDedup(all: ReturnType<typeof listAllExperiences>): number {
+  let fixed = 0;
+  for (const exp of all) {
+    if (exp.meta.scope !== "universal") continue;
+    const tags = (exp.meta.tags || []).map(t => t.toLowerCase());
+    if (tags.some(t => UNIVERSAL_BLOCKLIST.has(t))) {
+      updateExperienceMeta(exp.filePath, { scope: "domain" });
+      moveExperienceScope(exp.filePath, { ...exp.meta, scope: "domain" } as ExperienceFrontmatter);
+      fixed++;
+    }
+  }
+  return fixed;
+}
+
+// Phase 1: Jaccard-based fast clustering (unchanged logic)
 function findDupClusters(all: ReturnType<typeof listAllExperiences>): Array<number[]> {
   const n = all.length;
   const tokens = all.map(e => tokenize(e.content));
@@ -1161,98 +1186,288 @@ function findDupClusters(all: ReturnType<typeof listAllExperiences>): Array<numb
   return clusters;
 }
 
-export function dedup(opts: { dryRun?: boolean; brainCli?: string } = {}): { clusters: number; merged: number; deleted: number } {
-  const brainCli = opts.brainCli || "claude";
-  const all = listAllExperiences();
-  const clusters = findDupClusters(all);
+// --- Shared: LLM call helper ---
 
-  console.log(`Found ${clusters.length} duplicate clusters in ${all.length} experiences.\n`);
-  if (clusters.length === 0) return { clusters: 0, merged: 0, deleted: 0 };
+function callLlm(prompt: string, brainCli: string, timeout = 60_000): string {
+  if (brainCli === "claude") {
+    return execFileSync("claude", ["-p", "--bare"], {
+      encoding: "utf-8", timeout, input: prompt,
+      stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+    }).trim();
+  }
+  return execFileSync(brainCli, ["-p"], {
+    encoding: "utf-8", timeout, input: prompt,
+    stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+  }).trim();
+}
 
-  let merged = 0;
-  let deleted = 0;
+function parseLlmJson(output: string): unknown {
+  const cleaned = output.replace(/```(?:json)?\s*/g, "").trim();
+  try { return JSON.parse(cleaned); } catch {
+    for (const line of cleaned.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) continue;
+      try { return JSON.parse(trimmed); } catch { /* skip */ }
+    }
+  }
+  return null;
+}
 
-  for (let ci = 0; ci < clusters.length; ci++) {
-    const cluster = clusters[ci];
-    const exps = cluster.map(i => all[i]);
-    console.log(`\n[${ci + 1}/${clusters.length}] Cluster (${cluster.length} items):`);
-    for (const e of exps) {
-      console.log(`  - ${e.content.slice(0, 80)}`);
+type Experience = ReturnType<typeof listAllExperiences>[0];
+
+// --- Shared: merge a cluster of experiences via LLM ---
+
+function mergeCluster(exps: Experience[], brainCli: string, dryRun?: boolean): { merged: boolean; deleted: number; title?: string } {
+  for (const e of exps) {
+    console.log(`  - ${(e.meta.title || e.content).slice(0, 80)}`);
+  }
+
+  if (dryRun) return { merged: true, deleted: exps.length - 1 };
+
+  const expText = exps.map((e, i) =>
+    `${i + 1}. [${e.meta.scope}] [tags: ${e.meta.tags.join(",")}] ${e.content}`
+  ).join("\n");
+
+  try {
+    const output = callLlm(MERGE_PROMPT + expText, brainCli);
+    const mergedObj = parseLlmJson(output) as { title?: string; content?: string; scope?: string; tags?: string[] } | null;
+
+    if (!mergedObj?.content) {
+      console.log("  ⚠️ LLM merge failed, skipping cluster");
+      return { merged: false, deleted: 0 };
     }
 
-    if (opts.dryRun) {
-      merged++;
-      deleted += cluster.length - 1;
-      continue;
+    const keeper = exps[0];
+    const raw = fs.readFileSync(keeper.filePath, "utf-8");
+    const parsed = matter(raw);
+    parsed.data.title = (mergedObj.title || "").replace(/^["']|["']$/g, "").trim().slice(0, 50);
+    parsed.data.scope = mergedObj.scope || keeper.meta.scope;
+    parsed.data.tags = mergedObj.tags || keeper.meta.tags;
+    fs.writeFileSync(keeper.filePath, matter.stringify(mergedObj.content, parsed.data), "utf-8");
+    moveExperienceScope(keeper.filePath, parsed.data as ExperienceFrontmatter);
+
+    for (let k = 1; k < exps.length; k++) {
+      try { fs.unlinkSync(exps[k].filePath); } catch { /* already gone */ }
     }
 
-    // LLM merge
-    const expText = exps.map((e, i) =>
-      `${i + 1}. [${e.meta.scope}] [tags: ${e.meta.tags.join(",")}] ${e.content}`
-    ).join("\n");
+    console.log(`  ✅ Merged → "${parsed.data.title}" (deleted ${exps.length - 1} duplicates)`);
+    return { merged: true, deleted: exps.length - 1, title: parsed.data.title as string };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.log(`  ⚠️ LLM failed: ${msg.slice(0, 80)}`);
+    return { merged: false, deleted: 0 };
+  }
+}
+
+// --- Phase 2: LLM Semantic Clustering ---
+
+const CLUSTER_PROMPT = `你是经验去重专家。以下是同一领域的多条经验记录，请识别其中**语义上重复或高度相关**的条目。
+
+判断标准：
+- 描述同一个技术问题/解决方案的不同表述 → 重复
+- 描述同一个最佳实践的不同角度 → 重复
+- 描述同一个工具的不同功能/场景 → 不重复
+- 一条是另一条的子集 → 重复（合并到更完整的那条）
+
+## 工作步骤
+
+1. 逐条阅读每个经验，用一句话概括其核心知识点
+2. 对比所有概括，找出描述同一知识点的条目
+3. 输出结果
+
+## 输出格式（严格 JSON）
+
+{
+  "reasoning": [
+    "条目1和条目4都在说：异常处理不应该静默吞错",
+    "条目2和条目5和条目7都在说：npm从GitHub安装的tgz方案"
+  ],
+  "clusters": [[1,4], [2,5,7]]
+}
+
+- reasoning: 每组合并的理由（一句话说明共同知识点）
+- clusters: 应合并的编号分组，每组至少2个编号
+- 如果全部不重复，输出 {"reasoning": [], "clusters": []}
+- 只输出 JSON，不要其他文字
+
+条目列表：
+`;
+
+function buildTagGroups(all: Experience[]): Experience[][] {
+  // Build tag → index inverted index (excluding stopwords)
+  const tagIndex = new Map<string, number[]>();
+  for (let i = 0; i < all.length; i++) {
+    for (const tag of all[i].meta.tags || []) {
+      const key = tag.toLowerCase();
+      if (TAG_STOPWORDS.has(key)) continue;
+      if (!tagIndex.has(key)) tagIndex.set(key, []);
+      tagIndex.get(key)!.push(i);
+    }
+  }
+
+  // Union-Find
+  const parent = all.map((_, i) => i);
+  function find(x: number): number { return parent[x] === x ? x : (parent[x] = find(parent[x])); }
+  function union(a: number, b: number) { parent[find(a)] = find(b); }
+
+  for (const indices of tagIndex.values()) {
+    for (let i = 1; i < indices.length; i++) {
+      union(indices[0], indices[i]);
+    }
+  }
+
+  // Collect connected components
+  const components = new Map<number, number[]>();
+  for (let i = 0; i < all.length; i++) {
+    const root = find(i);
+    if (!components.has(root)) components.set(root, []);
+    components.get(root)!.push(i);
+  }
+
+  // Split large components by scope; filter size < 3
+  const groups: Experience[][] = [];
+  for (const indices of components.values()) {
+    if (indices.length < 3) continue;
+    if (indices.length <= 15) {
+      groups.push(indices.map(i => all[i]));
+    } else {
+      const byScope = new Map<string, Experience[]>();
+      for (const i of indices) {
+        const scope = all[i].meta.scope;
+        if (!byScope.has(scope)) byScope.set(scope, []);
+        byScope.get(scope)!.push(all[i]);
+      }
+      for (const subGroup of byScope.values()) {
+        if (subGroup.length >= 3) groups.push(subGroup);
+      }
+    }
+  }
+  return groups;
+}
+
+function llmCluster(exps: Experience[], brainCli: string): { reasoning: string[]; clusters: number[][] } {
+  const expText = exps.map((e, i) =>
+    `${i + 1}. [${e.meta.scope}] [tags: ${(e.meta.tags || []).join(",")}] ${(e.meta.title || e.content).slice(0, 120)}`
+  ).join("\n");
+
+  const output = callLlm(CLUSTER_PROMPT + expText, brainCli, 90_000);
+  const parsed = parseLlmJson(output) as { reasoning?: string[]; clusters?: number[][] } | null;
+
+  if (!parsed?.clusters || !Array.isArray(parsed.clusters)) {
+    return { reasoning: [], clusters: [] };
+  }
+
+  // Validate: filter out invalid indices
+  const valid = parsed.clusters
+    .filter(c => Array.isArray(c) && c.length >= 2)
+    .map(c => c.filter(n => typeof n === "number" && n >= 1 && n <= exps.length));
+
+  return {
+    reasoning: parsed.reasoning || [],
+    clusters: valid.filter(c => c.length >= 2),
+  };
+}
+
+function semanticDedup(
+  all: Experience[],
+  brainCli: string,
+  opts: { dryRun?: boolean }
+): { clusters: number; merged: number; deleted: number } {
+  const groups = buildTagGroups(all);
+  console.log(`\n🧠 Phase 2: Semantic clustering (${groups.length} tag-groups, ${groups.reduce((s, g) => s + g.length, 0)} experiences)`);
+
+  let totalClusters = 0;
+  let totalMerged = 0;
+  let totalDeleted = 0;
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi];
+    const sampleTags = [...new Set(group.flatMap(e => e.meta.tags || []))].slice(0, 5).join(",");
+    process.stdout.write(`  [${gi + 1}/${groups.length}] ${group.length} items (${sampleTags})... `);
 
     try {
-      let output: string;
-      const prompt = MERGE_PROMPT + expText;
-      if (brainCli === "claude") {
-        output = execFileSync("claude", ["-p", "--bare"], {
-          encoding: "utf-8", timeout: 60_000, input: prompt,
-          stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
-        }).trim();
-      } else {
-        output = execFileSync(brainCli, ["-p"], {
-          encoding: "utf-8", timeout: 60_000, input: prompt,
-          stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
-        }).trim();
-      }
-
-      let mergedObj: { title?: string; content?: string; scope?: string; tags?: string[] } | null = null;
-      // Strip markdown code fences if present
-      let cleaned = output.replace(/```(?:json)?\s*/g, "").trim();
-      // Try parsing as a single JSON object first
-      try { mergedObj = JSON.parse(cleaned); } catch {
-        // Fallback: find first { ... } block
-        for (const line of cleaned.split("\n")) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("{")) continue;
-          try { mergedObj = JSON.parse(trimmed); break; } catch { /* skip */ }
-        }
-      }
-
-      if (!mergedObj?.content) {
-        console.log("  ⚠️ LLM merge failed, skipping cluster");
+      const { reasoning, clusters } = llmCluster(group, brainCli);
+      if (clusters.length === 0) {
+        console.log("no duplicates");
         continue;
       }
 
-      // Keep the first file, update its content, delete the rest
-      const keeper = exps[0];
-      const raw = fs.readFileSync(keeper.filePath, "utf-8");
-      const parsed = matter(raw);
-      parsed.data.title = (mergedObj.title || "").replace(/^["']|["']$/g, "").slice(0, 50);
-      parsed.data.scope = mergedObj.scope || keeper.meta.scope;
-      parsed.data.tags = mergedObj.tags || keeper.meta.tags;
-      const newContent = mergedObj.content;
-      fs.writeFileSync(keeper.filePath, matter.stringify(newContent, parsed.data), "utf-8");
-      moveExperienceScope(keeper.filePath, parsed.data as ExperienceFrontmatter);
+      console.log(`${clusters.length} cluster(s) found`);
+      for (let ci = 0; ci < clusters.length; ci++) {
+        const indices = clusters[ci];
+        if (reasoning[ci]) console.log(`    💡 ${reasoning[ci]}`);
+        const clusterExps = indices.map(n => group[n - 1]).filter(Boolean);
+        if (clusterExps.length < 2) continue;
 
-      for (let k = 1; k < exps.length; k++) {
-        try { fs.unlinkSync(exps[k].filePath); } catch { /* already gone */ }
+        console.log(`    Cluster (${clusterExps.length} items):`);
+        const result = mergeCluster(clusterExps, brainCli, opts.dryRun);
+        totalClusters++;
+        if (result.merged) {
+          totalMerged++;
+          totalDeleted += result.deleted;
+        }
       }
-
-      merged++;
-      deleted += exps.length - 1;
-      console.log(`  ✅ Merged → "${parsed.data.title}" (deleted ${exps.length - 1} duplicates)`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.log(`  ⚠️ LLM failed: ${msg.slice(0, 80)}`);
+      console.log(`failed: ${msg.slice(0, 60)}`);
     }
   }
 
+  return { clusters: totalClusters, merged: totalMerged, deleted: totalDeleted };
+}
+
+// --- Main dedup entry ---
+
+export function dedup(opts: { dryRun?: boolean; brainCli?: string; jaccard?: boolean; semantic?: boolean } = {}): { clusters: number; merged: number; deleted: number } {
+  const brainCli = opts.brainCli || "claude";
+  const runJaccard = !opts.semantic; // skip jaccard only if --semantic explicitly set
+  const runSemantic = !opts.jaccard; // skip semantic only if --jaccard explicitly set
+
+  let totalClusters = 0;
+  let totalMerged = 0;
+  let totalDeleted = 0;
+
+  // Phase 0: Fix misclassified scopes
+  const all = listAllExperiences();
+  const scopeFixed = fixScopeBeforeDedup(all);
+  if (scopeFixed > 0) {
+    console.log(`📎 Phase 0: ${scopeFixed} universal → domain (scope corrected)`);
+  }
+
+  // Phase 1: Jaccard fast clustering
+  if (runJaccard) {
+    const freshAll = listAllExperiences();
+    const clusters = findDupClusters(freshAll);
+    console.log(`\n⚡ Phase 1: Jaccard — ${clusters.length} duplicate clusters in ${freshAll.length} experiences`);
+
+    for (let ci = 0; ci < clusters.length; ci++) {
+      const cluster = clusters[ci];
+      const exps = cluster.map(i => freshAll[i]);
+      console.log(`\n  [${ci + 1}/${clusters.length}] Cluster (${cluster.length} items):`);
+      const result = mergeCluster(exps, brainCli, opts.dryRun);
+      totalClusters++;
+      if (result.merged) {
+        totalMerged++;
+        totalDeleted += result.deleted;
+      }
+    }
+  }
+
+  // Phase 2: LLM semantic clustering
+  if (runSemantic) {
+    const freshAll = listAllExperiences();
+    const result = semanticDedup(freshAll, brainCli, { dryRun: opts.dryRun });
+    totalClusters += result.clusters;
+    totalMerged += result.merged;
+    totalDeleted += result.deleted;
+  }
+
+  // Summary
   if (opts.dryRun) {
-    console.log(`\n🔍 Dry run: would merge ${merged} clusters, delete ${deleted} duplicates.`);
+    console.log(`\n🔍 Dry run: would merge ${totalMerged} clusters, delete ${totalDeleted} duplicates.`);
   } else {
     const remaining = listAllExperiences().length;
-    console.log(`\n✅ Merged ${merged} clusters, deleted ${deleted} duplicates. Remaining: ${remaining} experiences.`);
+    console.log(`\n✅ Total: ${totalMerged} clusters merged, ${totalDeleted} deleted. ${remaining} experiences remaining.`);
   }
-  return { clusters: clusters.length, merged, deleted };
+  return { clusters: totalClusters, merged: totalMerged, deleted: totalDeleted };
 }

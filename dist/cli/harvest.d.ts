@@ -54,6 +54,8 @@ export declare function reclassify(opts?: {
 export declare function dedup(opts?: {
     dryRun?: boolean;
     brainCli?: string;
+    jaccard?: boolean;
+    semantic?: boolean;
 }): {
     clusters: number;
     merged: number;

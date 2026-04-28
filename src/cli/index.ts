@@ -94,7 +94,8 @@ Commands:
               --export[=FILE]    Export all experiences to markdown (default: skillseed-export.md)
               --sanitize         Replace secrets with {{placeholders}} (add --dry-run to preview)
               --reclassify       Re-classify scope of all experiences via LLM (add --dry-run to preview)
-              --dedup            Find and merge duplicate experiences via LLM (add --dry-run to preview)
+              --dedup            Find and merge duplicate experiences (add --dry-run to preview)
+                                   --jaccard: lexical only  --semantic: LLM only
 
 Options:
   -v, --version   Show version
@@ -268,8 +269,11 @@ async function runHarvest(): Promise<void> {
     const dryRun = process.argv[4] === "--dry-run";
     reclassify({ brainCli, dryRun });
   } else if (arg === "--dedup") {
-    const dryRun = process.argv[4] === "--dry-run";
-    dedup({ brainCli, dryRun });
+    const rest = process.argv.slice(4);
+    const dryRun = rest.includes("--dry-run");
+    const jaccard = rest.includes("--jaccard");
+    const semantic = rest.includes("--semantic");
+    dedup({ brainCli, dryRun, jaccard, semantic });
   } else if (arg === "--scan") {
     const files = discoverHistoryFiles();
     console.log(`\n📂 ${files.length} conversation history files:\n`);
