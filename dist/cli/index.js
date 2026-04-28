@@ -7,7 +7,7 @@ import path from "node:path";
 import { serveStdio, serveHttp } from "../server/mcp.js";
 import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, configureCopilotCli, configureCodex, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
-import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences, sanitizeAll, reclassify } from "./harvest.js";
+import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences, sanitizeAll, reclassify, dedup } from "./harvest.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -75,6 +75,7 @@ Commands:
               --export[=FILE]    Export all experiences to markdown (default: skillseed-export.md)
               --sanitize         Replace secrets with {{placeholders}} (add --dry-run to preview)
               --reclassify       Re-classify scope of all experiences via LLM (add --dry-run to preview)
+              --dedup            Find and merge duplicate experiences via LLM (add --dry-run to preview)
 
 Options:
   -v, --version   Show version
@@ -231,6 +232,10 @@ async function runHarvest() {
     else if (arg === "--reclassify") {
         const dryRun = process.argv[4] === "--dry-run";
         reclassify({ brainCli, dryRun });
+    }
+    else if (arg === "--dedup") {
+        const dryRun = process.argv[4] === "--dry-run";
+        dedup({ brainCli, dryRun });
     }
     else if (arg === "--scan") {
         const files = discoverHistoryFiles();

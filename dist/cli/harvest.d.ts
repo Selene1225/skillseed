@@ -51,4 +51,12 @@ export declare function reclassify(opts?: {
     total: number;
     updated: number;
 };
+export declare function dedup(opts?: {
+    dryRun?: boolean;
+    brainCli?: string;
+}): {
+    clusters: number;
+    merged: number;
+    deleted: number;
+};
 //# sourceMappingURL=harvest.d.ts.map

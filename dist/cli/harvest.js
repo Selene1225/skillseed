@@ -935,4 +935,148 @@ export function reclassify(opts = {}) {
     }
     return { total: all.length, updated };
 }
+// --- Dedup existing experiences ---
+const MERGE_PROMPT = `Below are duplicate/similar experiences about the same topic. Merge them into ONE consolidated experience that captures ALL unique details.
+
+Output a single JSON object with:
+- title: 中文标题（max 50 chars），仅技术专有名词保留英文，格式：[技术栈] 现象与方案
+- content: merged content preserving all unique details (max 300 chars)
+- scope: best scope for this (universal/domain/project/company/personal)
+- tags: merged unique tags
+
+Output ONLY the JSON object, no other text.
+
+Experiences to merge:
+`;
+function findDupClusters(all) {
+    const n = all.length;
+    const tokens = all.map(e => tokenize(e.content));
+    const tagSets = all.map(e => new Set(e.meta.tags || []));
+    const visited = new Set();
+    const clusters = [];
+    for (let i = 0; i < n; i++) {
+        if (visited.has(i))
+            continue;
+        const cluster = [i];
+        visited.add(i);
+        for (let j = i + 1; j < n; j++) {
+            if (visited.has(j))
+                continue;
+            // Check similarity against any member in the cluster
+            for (const k of cluster) {
+                const textSim = jaccardSimilarity(tokens[k], tokens[j]);
+                // Tag overlap
+                let tagOverlap = 0;
+                for (const t of tagSets[k])
+                    if (tagSets[j].has(t))
+                        tagOverlap++;
+                const tagSim = Math.min(tagSets[k].size, tagSets[j].size) === 0 ? 0 : tagOverlap / Math.min(tagSets[k].size, tagSets[j].size);
+                if (textSim > 0.3 || (textSim > 0.2 && tagSim >= 0.6)) {
+                    cluster.push(j);
+                    visited.add(j);
+                    break;
+                }
+            }
+        }
+        if (cluster.length > 1)
+            clusters.push(cluster);
+    }
+    return clusters;
+}
+export function dedup(opts = {}) {
+    const brainCli = opts.brainCli || "claude";
+    const all = listAllExperiences();
+    const clusters = findDupClusters(all);
+    console.log(`Found ${clusters.length} duplicate clusters in ${all.length} experiences.\n`);
+    if (clusters.length === 0)
+        return { clusters: 0, merged: 0, deleted: 0 };
+    let merged = 0;
+    let deleted = 0;
+    for (let ci = 0; ci < clusters.length; ci++) {
+        const cluster = clusters[ci];
+        const exps = cluster.map(i => all[i]);
+        console.log(`\n[${ci + 1}/${clusters.length}] Cluster (${cluster.length} items):`);
+        for (const e of exps) {
+            console.log(`  - ${e.content.slice(0, 80)}`);
+        }
+        if (opts.dryRun) {
+            merged++;
+            deleted += cluster.length - 1;
+            continue;
+        }
+        // LLM merge
+        const expText = exps.map((e, i) => `${i + 1}. [${e.meta.scope}] [tags: ${e.meta.tags.join(",")}] ${e.content}`).join("\n");
+        try {
+            let output;
+            const prompt = MERGE_PROMPT + expText;
+            if (brainCli === "claude") {
+                output = execFileSync("claude", ["-p", "--bare"], {
+                    encoding: "utf-8", timeout: 60_000, input: prompt,
+                    stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+                }).trim();
+            }
+            else {
+                output = execFileSync(brainCli, ["-p"], {
+                    encoding: "utf-8", timeout: 60_000, input: prompt,
+                    stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+                }).trim();
+            }
+            let mergedObj = null;
+            // Strip markdown code fences if present
+            let cleaned = output.replace(/```(?:json)?\s*/g, "").trim();
+            // Try parsing as a single JSON object first
+            try {
+                mergedObj = JSON.parse(cleaned);
+            }
+            catch {
+                // Fallback: find first { ... } block
+                for (const line of cleaned.split("\n")) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("{"))
+                        continue;
+                    try {
+                        mergedObj = JSON.parse(trimmed);
+                        break;
+                    }
+                    catch { /* skip */ }
+                }
+            }
+            if (!mergedObj?.content) {
+                console.log("  ⚠️ LLM merge failed, skipping cluster");
+                continue;
+            }
+            // Keep the first file, update its content, delete the rest
+            const keeper = exps[0];
+            const raw = fs.readFileSync(keeper.filePath, "utf-8");
+            const parsed = matter(raw);
+            parsed.data.title = (mergedObj.title || "").replace(/^["']|["']$/g, "").slice(0, 50);
+            parsed.data.scope = mergedObj.scope || keeper.meta.scope;
+            parsed.data.tags = mergedObj.tags || keeper.meta.tags;
+            const newContent = mergedObj.content;
+            fs.writeFileSync(keeper.filePath, matter.stringify(newContent, parsed.data), "utf-8");
+            moveExperienceScope(keeper.filePath, parsed.data);
+            for (let k = 1; k < exps.length; k++) {
+                try {
+                    fs.unlinkSync(exps[k].filePath);
+                }
+                catch { /* already gone */ }
+            }
+            merged++;
+            deleted += exps.length - 1;
+            console.log(`  ✅ Merged → "${parsed.data.title}" (deleted ${exps.length - 1} duplicates)`);
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.log(`  ⚠️ LLM failed: ${msg.slice(0, 80)}`);
+        }
+    }
+    if (opts.dryRun) {
+        console.log(`\n🔍 Dry run: would merge ${merged} clusters, delete ${deleted} duplicates.`);
+    }
+    else {
+        const remaining = listAllExperiences().length;
+        console.log(`\n✅ Merged ${merged} clusters, deleted ${deleted} duplicates. Remaining: ${remaining} experiences.`);
+    }
+    return { clusters: clusters.length, merged, deleted };
+}
 //# sourceMappingURL=harvest.js.map
