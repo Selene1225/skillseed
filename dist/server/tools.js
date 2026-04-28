@@ -8,7 +8,7 @@ import { recall, recallDetail } from "../service/recall.js";
 import { preferenceGet, preferenceSet } from "../service/preference.js";
 export function registerTools(server) {
     // seed_log — Record a work experience
-    server.tool("seed_log", "Record a work experience or lesson learned. Call when: (1) user corrects you, (2) a non-obvious solution is found after debugging, (3) user describes project-specific processes or conventions, (4) user explicitly asks to remember something. Do NOT call for trivial facts or well-known information.", {
+    server.tool("seed_log", "Record a work experience or lesson learned. Call when: (1) user corrects you, (2) a non-obvious solution is found after debugging, (3) user describes project-specific processes or conventions, (4) user says 记住/remember and the content is a fact or experience (not a preference). Do NOT call for trivial facts or well-known information.", {
         content: z.string().describe("The experience content in natural language"),
         scope: z.enum(["universal", "domain", "company", "team", "project", "personal"]).optional()
             .describe("Scope level (auto-inferred if not provided)"),
@@ -29,7 +29,7 @@ export function registerTools(server) {
         return { content: [{ type: "text", text }] };
     });
     // seed_recall — Search past experiences
-    server.tool("seed_recall", "Search past work experiences. Call when: (1) writing code or configs and need project-specific context, (2) user corrected you — check for similar past corrections, (3) stuck or failing repeatedly. Do NOT call for simple questions, greetings, or general knowledge.", {
+    server.tool("seed_recall", "Search past work experiences. Call when: (1) writing code or configs and need project-specific context, (2) user corrected you — check for similar past corrections, (3) stuck or failing repeatedly. Do NOT call for simple questions, greetings, or general knowledge. NEVER call when user says 记住/remember/记得 — use seed_preference_set or seed_log instead.", {
         query: z.string().describe("What to search for"),
         scope: z.enum(["universal", "domain", "company", "team", "project", "personal"]).optional(),
         tags: z.array(z.string()).optional(),
@@ -72,7 +72,7 @@ export function registerTools(server) {
         return { content: [{ type: "text", text }] };
     });
     // seed_preference_set — Set a user preference
-    server.tool("seed_preference_set", "Set a user preference. Use when the user expresses a consistent preference about how they like things done.", {
+    server.tool("seed_preference_set", "Set a user preference. Call when user says 记住/remember/记得 about preferences, styles, or behaviors (e.g. 'remember I prefer dark mode', '记住用中文回复').", {
         key: z.string().describe("Preference key"),
         value: z.string().describe("Preference value"),
     }, async (params) => {

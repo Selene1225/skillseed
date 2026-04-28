@@ -1,6 +1,6 @@
 {
   "name": "skillseed",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "Personal work experience engine — gives your AI CLI a memory.",
   "type": "module",
   "bin": {
