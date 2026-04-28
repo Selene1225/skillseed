@@ -67,15 +67,23 @@ const SKIP_PATTERNS = [
 
 // Pre-filter: discard test residue and garbage data before LLM extraction
 const GARBAGE_PATTERNS = [
-  /^Count test\b/i,
-  /^test\s+(?:alpha|beta|gamma|delta)\b/i,
-  /^test\s+\d{10,}/i, // test + timestamp
-  /^(?:foo|bar|baz|lorem ipsum)\b/i,
+  /Count test\b/i,
+  /test\s+(?:alpha|beta|gamma|delta)\b/i,
+  /test\s+\d{10,}/i, // test + timestamp
+  /\b(?:foo|bar|baz|lorem ipsum)\b/i,
   /^TODO:?\s*$/i,
   /^placeholder/i,
 ];
 
-// --- JSONL Parsing ---
+// Tags that force scope downgrade from universal → domain
+const UNIVERSAL_BLOCKLIST = new Set([
+  "python", "azure", "npm", "playwright", "teams", "edge", "github", "windows",
+  "sqlite", "react", "asyncio", "fastapi", "typescript", "node", "docker",
+  "kubernetes", "redis", "postgresql", "mongodb", "nextjs", "vue", "angular",
+  "django", "flask", "express", "graphql", "rest", "grpc", "terraform",
+  "powershell", "bash", "linux", "macos", "chrome", "firefox", "safari",
+  "webpack", "vite", "eslint", "jest", "vitest", "pytest", "junit",
+]);
 
 function parseJsonlFile(filePath: string): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
@@ -255,7 +263,13 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
         const obj = JSON.parse(trimmed);
         if (obj.content && obj.category) {
           // Post-filter: skip garbage that slipped through
-          if (isGarbage(obj.content) || (obj.content.length < 15 && !obj.tags?.length)) continue;
+          if (isGarbage(obj.content) || isGarbage(obj.title || "") || (obj.content.length < 15 && !obj.tags?.length)) continue;
+          // Programmatic: strip wrapping quotes from title
+          if (obj.title) obj.title = obj.title.replace(/^["']|["']$/g, "").trim();
+          // Programmatic: downgrade universal scope if tags contain specific tech
+          if ((obj.scope || "universal") === "universal" && obj.tags?.some((t: string) => UNIVERSAL_BLOCKLIST.has(t.toLowerCase()))) {
+            obj.scope = "domain";
+          }
           results.push({
             title: obj.title || undefined,
             content: obj.content,
@@ -282,8 +296,13 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
 // --- Semantic Dedup ---
 
 function tokenize(text: string): Set<string> {
+  const segmenter = new Intl.Segmenter("zh-CN", { granularity: "word" });
+  const segments = Array.from(segmenter.segment(text.toLowerCase()));
   return new Set(
-    text.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, " ").split(/\s+/).filter(w => w.length > 1)
+    segments
+      .filter(s => s.isWordLike || /^[a-z0-9]+$/.test(s.segment))
+      .map(s => s.segment)
+      .filter(w => w.length > 1 || /[\u4e00-\u9fff]/.test(w))
   );
 }
 
@@ -294,7 +313,7 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-function isDuplicateExperience(newContent: string, newTags: string[]): { duplicate: boolean; similarId?: string } {
+function isDuplicateExperience(newContent: string, newTags: string[]): { duplicate: boolean; similarExp?: ReturnType<typeof listAllExperiences>[0] } {
   const existing = listAllExperiences();
   const newTokens = tokenize(newContent);
   const newTagSet = new Set(newTags);
@@ -312,11 +331,26 @@ function isDuplicateExperience(newContent: string, newTags: string[]): { duplica
 
     // Combined: high text similarity + tag overlap = duplicate
     if (textSim > 0.6 || (textSim > 0.4 && tagSim > 0.5)) {
-      return { duplicate: true, similarId: e.id };
+      return { duplicate: true, similarExp: e };
     }
   }
   return { duplicate: false };
 }
+
+// --- Merge Prompt (used by both writePending real-time merge and batch dedup) ---
+
+const MERGE_PROMPT = `Below are duplicate/similar experiences about the same topic. Merge them into ONE consolidated experience that captures ALL unique details.
+
+Output a single JSON object with:
+- title: 中文标题（max 50 chars），仅技术专有名词保留英文，格式：[技术栈] 现象与方案
+- content: merged content preserving all unique details (max 300 chars)
+- scope: best scope for this (universal/domain/project/company/personal)
+- tags: merged unique tags
+
+Output ONLY the JSON object, no other text.
+
+Experiences to merge:
+`;
 
 // --- Pending Storage ---
 
@@ -324,10 +358,54 @@ function getPendingDir(): string {
   return path.join(getSkillseedDir(), "pending");
 }
 
-function writePending(exp: PendingExperience): string | null {
-  // Semantic dedup: skip if too similar to existing experience
-  const { duplicate, similarId } = isDuplicateExperience(exp.content, exp.tags);
-  if (duplicate) return null; // caller handles skip count
+function writePending(exp: PendingExperience, brainCli: string = "claude"): string | null {
+  // Semantic dedup: merge into existing if too similar
+  const { duplicate, similarExp } = isDuplicateExperience(exp.content, exp.tags);
+  if (duplicate && similarExp) {
+    // LLM merge: combine new context into the existing experience
+    const mergeInput = [
+      `1. [${similarExp.meta.scope}] [tags: ${(similarExp.meta.tags || []).join(",")}] ${similarExp.content}`,
+      `2. [${exp.scope}] [tags: ${exp.tags.join(",")}] ${exp.content}`,
+    ].join("\n");
+    const prompt = MERGE_PROMPT + mergeInput;
+
+    try {
+      let output: string;
+      if (brainCli === "claude") {
+        output = execFileSync("claude", ["-p", "--bare"], {
+          encoding: "utf-8", timeout: 60_000, input: prompt,
+          stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+        }).trim();
+      } else {
+        output = execFileSync(brainCli, ["-p"], {
+          encoding: "utf-8", timeout: 60_000, input: prompt,
+          stdio: ["pipe", "pipe", "pipe"], maxBuffer: 1024 * 1024,
+        }).trim();
+      }
+
+      let mergedObj: { title?: string; content?: string; scope?: string; tags?: string[] } | null = null;
+      const cleaned = output.replace(/```(?:json)?\s*/g, "").trim();
+      try { mergedObj = JSON.parse(cleaned); } catch {
+        for (const line of cleaned.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("{")) continue;
+          try { mergedObj = JSON.parse(trimmed); break; } catch { /* skip */ }
+        }
+      }
+
+      if (mergedObj?.content) {
+        const raw = fs.readFileSync(similarExp.filePath, "utf-8");
+        const parsed = matter(raw);
+        if (mergedObj.title) parsed.data.title = mergedObj.title.replace(/^["']|["']$/g, "").trim().slice(0, 50);
+        parsed.data.scope = mergedObj.scope || similarExp.meta.scope;
+        parsed.data.tags = mergedObj.tags || similarExp.meta.tags;
+        parsed.data.updated = new Date().toISOString().slice(0, 10);
+        fs.writeFileSync(similarExp.filePath, matter.stringify(mergedObj.content, parsed.data), "utf-8");
+        moveExperienceScope(similarExp.filePath, parsed.data as ExperienceFrontmatter);
+        return `merged:${similarExp.id}`;
+      }
+    } catch { /* merge failed, fall through to write as new */ }
+  }
 
   const dir = getPendingDir();
   fs.mkdirSync(dir, { recursive: true });
@@ -491,8 +569,11 @@ export function harvest(opts: HarvestOptions = {}): { scanned: number; extracted
         if (opts.dryRun) {
           console.log(`   [dry-run] Would extract: ${exp.content.slice(0, 80)}`);
         } else {
-          const written = writePending(exp);
+          const written = writePending(exp, brainCli);
           if (!written) continue; // semantic dedup skipped
+          if (written.startsWith("merged:")) {
+            console.log(`     ↗ merged into existing: ${written.slice(7).slice(0, 60)}`);
+          }
           existingContent.push(exp.content);
         }
         extracted++;
@@ -1046,19 +1127,6 @@ export function reclassify(opts: { dryRun?: boolean; brainCli?: string } = {}): 
 }
 
 // --- Dedup existing experiences ---
-
-const MERGE_PROMPT = `Below are duplicate/similar experiences about the same topic. Merge them into ONE consolidated experience that captures ALL unique details.
-
-Output a single JSON object with:
-- title: 中文标题（max 50 chars），仅技术专有名词保留英文，格式：[技术栈] 现象与方案
-- content: merged content preserving all unique details (max 300 chars)
-- scope: best scope for this (universal/domain/project/company/personal)
-- tags: merged unique tags
-
-Output ONLY the JSON object, no other text.
-
-Experiences to merge:
-`;
 
 function findDupClusters(all: ReturnType<typeof listAllExperiences>): Array<number[]> {
   const n = all.length;
