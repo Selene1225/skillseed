@@ -33,6 +33,9 @@ async function main() {
         case "sync":
             await runSync();
             break;
+        case "clear":
+            await runClear();
+            break;
         case "harvest":
             await runHarvest();
             break;
@@ -61,6 +64,7 @@ Commands:
   start     Start MCP server in HTTP mode (multi-client)
   status    Show current status
   list      List stored experiences
+  clear     Clear all experiences and harvest state (--confirm to skip prompt)
   sync      Sync experiences (pull + commit + push)
               --setup URL   Configure remote manually
               --status      Show sync state
@@ -196,6 +200,48 @@ function runList() {
         console.log(`    tags: ${exp.meta.tags.join(", ")} | confidence: ${exp.meta.confidence} | ${exp.meta.created}`);
         console.log();
     }
+}
+async function runClear() {
+    const confirm = process.argv[3] === "--confirm";
+    const ssDir = getSkillseedDir();
+    const experiencesDir = path.join(ssDir, "experiences");
+    const pendingDir = path.join(ssDir, "pending");
+    const statePath = path.join(ssDir, "harvest-state.json");
+    // Count what will be deleted
+    const expCount = fs.existsSync(experiencesDir) ? listAllExperiences().length : 0;
+    let pendingCount = 0;
+    if (fs.existsSync(pendingDir)) {
+        pendingCount = fs.readdirSync(pendingDir).filter(f => f.endsWith(".md")).length;
+    }
+    const hasState = fs.existsSync(statePath);
+    if (expCount === 0 && pendingCount === 0 && !hasState) {
+        console.log("\n✅ Nothing to clear.\n");
+        return;
+    }
+    console.log(`\n⚠️  Will delete:`);
+    if (expCount > 0)
+        console.log(`   ${expCount} experiences`);
+    if (pendingCount > 0)
+        console.log(`   ${pendingCount} pending reviews`);
+    if (hasState)
+        console.log(`   harvest state (will re-scan all sessions)`);
+    if (!confirm) {
+        const rl = (await import("node:readline")).createInterface({ input: process.stdin, output: process.stdout });
+        const answer = await new Promise(resolve => rl.question("\nType YES to confirm: ", resolve));
+        rl.close();
+        if (answer.trim() !== "YES") {
+            console.log("Cancelled.");
+            return;
+        }
+    }
+    if (fs.existsSync(experiencesDir))
+        fs.rmSync(experiencesDir, { recursive: true });
+    if (fs.existsSync(pendingDir))
+        fs.rmSync(pendingDir, { recursive: true });
+    if (fs.existsSync(statePath))
+        fs.unlinkSync(statePath);
+    console.log(`\n🗑️  Cleared ${expCount} experiences, ${pendingCount} pending, harvest state reset.`);
+    console.log(`   Run 'seed harvest' to re-extract from conversation history.\n`);
 }
 async function runHarvest() {
     const arg = process.argv[3];
