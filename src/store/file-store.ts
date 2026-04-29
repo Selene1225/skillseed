@@ -281,12 +281,15 @@ export function search(opts: SearchOptions): SearchResult[] {
   const limit = opts.limit ?? 5;
   scored = scored.slice(0, limit);
 
-  // Apply token budget (rough estimate: 1 token ≈ 4 chars for English)
+  // Apply token budget (rough estimate: 1 token ≈ 4 chars for English, 2 chars for Chinese)
   if (opts.maxTokens) {
+    const HIGH_SCORE = 80;
     let totalTokens = 0;
     const budgeted: SearchResult[] = [];
     for (const r of scored) {
-      const estTokens = Math.ceil(r.experience.content.length / 4) + 30; // 30 for metadata
+      // High-score items include full content; low-score only title summary
+      const contentLen = r.score >= HIGH_SCORE ? r.experience.content.length : (r.experience.meta.title?.length || 50);
+      const estTokens = Math.ceil(contentLen / 3) + 30; // 30 for metadata overhead
       if (totalTokens + estTokens > opts.maxTokens) break;
       totalTokens += estTokens;
       budgeted.push(r);
