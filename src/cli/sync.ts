@@ -9,6 +9,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import matter from "gray-matter";
 import { getSkillseedDir, getExperiencesDir } from "../store/file-store.js";
+import { withLock } from "../store/lockfile.js";
 import { createInterface } from "node:readline";
 
 const MARKER_FILE = ".skillseed-marker";
@@ -120,6 +121,12 @@ export function stageChanges(filePath: string): void {
 
 /** Full manual sync: pull → filter → commit → push */
 export async function sync(dataDir?: string): Promise<void> {
+  await withLock(async () => {
+    await syncInner(dataDir);
+  });
+}
+
+async function syncInner(dataDir?: string): Promise<void> {
   const dir = dataDir ?? getSkillseedDir();
   const remote = gitSafe(["remote"], dir);
   if (!remote) {
@@ -186,38 +193,40 @@ export async function sync(dataDir?: string): Promise<void> {
 
 /** Batch commit+push for 30-min timer and graceful shutdown */
 export async function batchCommitAndPush(dataDir?: string): Promise<void> {
-  const dir = dataDir ?? getSkillseedDir();
-  const remote = gitSafe(["remote"], dir);
-  if (!remote) return;
+  await withLock(async () => {
+    const dir = dataDir ?? getSkillseedDir();
+    const remote = gitSafe(["remote"], dir);
+    if (!remote) return;
 
-  if (!checkAuth()) return; // silent fail for background
+    if (!checkAuth()) return; // silent fail for background
 
-  ensureMainBranch(dir);
-  const branch = gitSafe(["branch", "--show-current"], dir) ?? "main";
+    ensureMainBranch(dir);
+    const branch = gitSafe(["branch", "--show-current"], dir) ?? "main";
 
-  // Pull first
-  gitSafe(["pull", "origin", branch, "--no-edit"], dir);
+    // Pull first
+    gitSafe(["pull", "origin", branch, "--no-edit"], dir);
 
-  // Stage all
-  gitSafe(["add", "."], dir);
+    // Stage all
+    gitSafe(["add", "."], dir);
 
-  // Filter sensitive
-  filterSensitiveFiles(dir);
+    // Filter sensitive
+    filterSensitiveFiles(dir);
 
-  // Commit if changes
-  const status = gitSafe(["status", "--porcelain"], dir) ?? "";
-  if (status.length > 0) {
-    const count = status.split("\n").filter(Boolean).length;
-    gitSafe(["commit", "-m", `sync: ${count} new experience(s)`], dir);
-  }
+    // Commit if changes
+    const status = gitSafe(["status", "--porcelain"], dir) ?? "";
+    if (status.length > 0) {
+      const count = status.split("\n").filter(Boolean).length;
+      gitSafe(["commit", "-m", `sync: ${count} new experience(s)`], dir);
+    }
 
-  // Push (silent fail if offline)
-  const pushResult = gitSafe(["push", "-u", "origin", branch], dir);
-  if (pushResult !== null) {
-    const config = getConfig();
-    config.last_sync = new Date().toISOString();
-    saveConfig(config);
-  }
+    // Push (silent fail if offline)
+    const pushResult = gitSafe(["push", "-u", "origin", branch], dir);
+    if (pushResult !== null) {
+      const config = getConfig();
+      config.last_sync = new Date().toISOString();
+      saveConfig(config);
+    }
+  });
 }
 
 // ── Setup Sync (init step 6) ─────────────────────────────────────────

@@ -22,7 +22,7 @@ import {
   setTransport,
 } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
-import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences, sanitizeAll, reclassify, dedup } from "./harvest.js";
+import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences, sanitizeAll, reclassify, dedup } from "../harvester/index.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 
 import { createRequire } from "node:module";

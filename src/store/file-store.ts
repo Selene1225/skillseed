@@ -167,10 +167,17 @@ export function writeExperience(meta: ExperienceFrontmatter, content: string): E
   const filePath = path.join(dir, filename);
 
   const fileContent = matter.stringify(sanitized + "\n", meta);
-  fs.writeFileSync(filePath, fileContent, "utf-8");
+  writeFileSafe(filePath, fileContent);
 
   const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
   return { id, meta, content: sanitized, filePath };
+}
+
+/** Atomic-ish write: write to temp then rename (prevents partial writes on crash) */
+function writeFileSafe(filePath: string, content: string): void {
+  const tmp = filePath + ".tmp";
+  fs.writeFileSync(tmp, content, "utf-8");
+  fs.renameSync(tmp, filePath);
 }
 
 function isDuplicate(dir: string, content: string): boolean {
@@ -212,7 +219,7 @@ export function updateExperienceMeta(filePath: string, updates: Partial<Experien
     Object.entries(merged).filter(([, v]) => v !== undefined)
   );
   const fileContent = matter.stringify(exp.content + "\n", newMeta);
-  fs.writeFileSync(filePath, fileContent, "utf-8");
+  writeFileSafe(filePath, fileContent);
 }
 
 export function listAllExperiences(): Experience[] {
