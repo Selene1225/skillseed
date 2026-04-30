@@ -35,6 +35,7 @@ export interface PendingExperience {
   tags: string[];
   scope: string;
   source_file: string;
+  project?: string;
 }
 
 export interface HarvestOptions {
@@ -131,10 +132,50 @@ function projectNameFromPath(filePath: string): string {
   const projIdx = parts.indexOf("projects");
   if (projIdx >= 0 && projIdx + 1 < parts.length) {
     const dirName = parts[projIdx + 1];
+    // Claude CLI encodes path as c--Users-yiliu4-code-PROJECT → try to resolve actual dir
+    const realPath = decodeClaудProjectDir(dirName);
+    if (realPath) {
+      const declared = readProjectDeclaration(realPath);
+      if (declared) return declared;
+    }
+    // Fallback: last segment of encoded path
     const segments = dirName.split("-");
     return segments[segments.length - 1] || dirName;
   }
   return "unknown";
+}
+
+/**
+ * Decode Claude CLI project directory encoding back to real filesystem path.
+ * e.g. "c--Users-yiliu4-code-my-project" → "c:/Users/yiliu4/code/my-project"
+ * Format: drive letter + "--" + path segments joined by "-"
+ */
+function decodeClaудProjectDir(dirName: string): string | null {
+  // Pattern: {drive}--{rest} where separators are single dashes
+  const match = dirName.match(/^([a-z])--(.+)$/i);
+  if (!match) return null;
+  const drive = match[1];
+  const rest = match[2];
+  // Convert dashes back to path separators; this is lossy for dirs with dashes
+  // Try the full path first, then progressively replace dashes
+  const candidate = `${drive}:${path.sep}${rest.replace(/-/g, path.sep)}`;
+  if (fs.existsSync(candidate)) return candidate;
+  return null;
+}
+
+/**
+ * Read .skillseed.yaml from a project root to get canonical project name.
+ * File format: `project: my-project-name`
+ */
+function readProjectDeclaration(projectRoot: string): string | null {
+  const yamlPath = path.join(projectRoot, ".skillseed.yaml");
+  try {
+    const content = fs.readFileSync(yamlPath, "utf-8");
+    const match = content.match(/^project:\s*(.+)$/m);
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 // --- Heuristic Filter ---
@@ -213,6 +254,7 @@ function extractWithLlm(chunk: ConversationChunk, brainCli: string): PendingExpe
             tags: obj.tags || [],
             scope: obj.scope || "universal",
             source_file: chunk.file,
+            project: chunk.project !== "unknown" ? chunk.project : undefined,
           });
         }
       } catch { /* skip malformed JSON */ }
@@ -276,6 +318,7 @@ export function writePending(exp: PendingExperience, brainCli: string = "claude"
     `category: ${exp.category}`,
     `tags: [${exp.tags.map(t => `"${t}"`).join(", ")}]`,
     `scope: ${exp.scope}`,
+    ...(exp.project ? [`project: ${exp.project}`] : []),
     `source_file: ${exp.source_file}`,
     `harvested: ${new Date().toISOString()}`,
     "---",

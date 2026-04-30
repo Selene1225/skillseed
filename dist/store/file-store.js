@@ -113,9 +113,15 @@ export function writeExperience(meta, content) {
     const filename = `${date}-${slug}-${rand}.md`;
     const filePath = path.join(dir, filename);
     const fileContent = matter.stringify(sanitized + "\n", meta);
-    fs.writeFileSync(filePath, fileContent, "utf-8");
+    writeFileSafe(filePath, fileContent);
     const id = path.relative(getExperiencesDir(), filePath).replace(/\\/g, "/");
     return { id, meta, content: sanitized, filePath };
+}
+/** Atomic-ish write: write to temp then rename (prevents partial writes on crash) */
+function writeFileSafe(filePath, content) {
+    const tmp = filePath + ".tmp";
+    fs.writeFileSync(tmp, content, "utf-8");
+    fs.renameSync(tmp, filePath);
 }
 function isDuplicate(dir, content) {
     return findByContent(dir, content) !== null;
@@ -156,7 +162,7 @@ export function updateExperienceMeta(filePath, updates) {
     const merged = { ...exp.meta, ...updates, updated: new Date().toISOString().slice(0, 10) };
     const newMeta = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined));
     const fileContent = matter.stringify(exp.content + "\n", newMeta);
-    fs.writeFileSync(filePath, fileContent, "utf-8");
+    writeFileSafe(filePath, fileContent);
 }
 export function listAllExperiences() {
     const results = [];

@@ -45,6 +45,7 @@ export function registerTools(server: McpServer): void {
       query: z.string().describe("What to search for"),
       scope: z.enum(["universal", "domain", "company", "team", "project", "personal"]).optional(),
       tags: z.array(z.string()).optional(),
+      project: z.string().optional().describe("Filter by project name (as declared in .skillseed.yaml)"),
       limit: z.number().optional().describe("Max results (default: 5)"),
       maxTokens: z.number().optional().describe("Token budget (default: 1500)"),
       detail: z.string().optional().describe("Experience ID to get full text instead of search"),

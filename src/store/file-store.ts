@@ -38,6 +38,7 @@ export interface SearchOptions {
   query?: string;
   scope?: string;
   tags?: string[];
+  project?: string;
   limit?: number;
   maxTokens?: number;
 }
@@ -270,6 +271,11 @@ export function search(opts: SearchOptions): SearchResult[] {
     // Scope filtering
     if (opts.scope && exp.meta.scope !== opts.scope) {
       continue; // skip non-matching scope
+    }
+
+    // Project filtering
+    if (opts.project && exp.meta.project !== opts.project) {
+      continue;
     }
 
     // Boost by usage and recency (only if already matched by query/tags)

@@ -7,7 +7,7 @@ import path from "node:path";
 import { serveStdio, serveHttp } from "../server/mcp.js";
 import { detectClis, initSkillseedDir, configureClaude, configureGemini, configureVSCode, configureCopilotCli, configureCodex, injectClaudeMd, setBrainCli, setDeviceType, setTransport, } from "./setup.js";
 import { sync, setupSync, getSyncStatus, audit } from "./sync.js";
-import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences, sanitizeAll, reclassify, dedup } from "./harvest.js";
+import { harvest, reviewPending, approveAll, autoReview, discoverHistoryFiles, backfillTitles, exportExperiences, sanitizeAll, reclassify, dedup } from "../harvester/index.js";
 import { getSkillseedDir, listAllExperiences } from "../store/file-store.js";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);

@@ -8,6 +8,7 @@ export interface RecallInput {
   query: string;
   scope?: string;
   tags?: string[];
+  project?: string;
   limit?: number;
   maxTokens?: number;
   detail?: string; // experience ID for full-text retrieval
@@ -34,6 +35,7 @@ export function recall(input: RecallInput): RecallResult {
     query: input.query,
     scope: input.scope,
     tags: input.tags,
+    project: input.project,
     limit: input.limit ?? 5,
     maxTokens: input.maxTokens ?? 1500,
   };
